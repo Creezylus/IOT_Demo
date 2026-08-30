@@ -117,7 +117,7 @@ int main() {
                     close(sd);
                     client_sockets[i] = 0;
                 } else if (valread >= sizeof(SensorData)) {
-                    // Cast the raw buffer directly into the SensorData pointer
+                    // Cast the raw buffer to SensorData type
                     SensorData *received_data = (SensorData *)buffer;
                     print_sensor_data(received_data);
                 }
