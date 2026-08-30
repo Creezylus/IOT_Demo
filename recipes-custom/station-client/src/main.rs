@@ -48,7 +48,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let (mut socket, addr) = listener.accept().await?;
-        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let permit = match semaphore.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                println!("Max edge clients ({}) reached. Denying connection from {}", MAX_EDGE, addr);
+                continue;
+            }
+        };
 
         tokio::spawn(async move {
             println!("--- Edge Client Connected from {} ---", addr);
