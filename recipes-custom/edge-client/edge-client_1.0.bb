@@ -1,4 +1,4 @@
-SUMMARY = "Hello Nanometrics Application"
+SUMMARY = "Edge Client Application To Gather Data From Multiple Sensor Clients"
 LICENSE = "CLOSED"
 
 
@@ -8,7 +8,7 @@ SRC_URI = " \
     file://Makefile \
 "
 
-# Local files are unpacked directly into WORKDIR
+
 S = "${WORKDIR}"
 
 EXTRA_OEMAKE = "'CC=${CC}' 'CFLAGS=${CFLAGS}' 'LDFLAGS=${LDFLAGS}'"

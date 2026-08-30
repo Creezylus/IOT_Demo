@@ -86,14 +86,12 @@ void* net_thread_func(void* arg) {
     return NULL;
 }
 
-// THREAD 2: Simulation Thread
+// THREAD 2: Simulation Thread --- This Thread an also be used to gather data from connected sensors
 void* sim_thread_func(void* arg) {
     printf("Sim Thread: Starting data generation...\n");
     srand((unsigned int)time(NULL));
     float time_step = 0.0f;
     while (1) {
-        // Generate simulated data
-
         SensorData data;
         // 1. Accel: Continuous sinusoidal vibration + gravity baseline + sensor noise
         data.id = client_id; 

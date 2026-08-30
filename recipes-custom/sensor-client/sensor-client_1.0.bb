@@ -1,7 +1,7 @@
-SUMMARY = "Sensor Client Application"
+SUMMARY = "Sensor Client Application To Gather Data From Sensors"
 LICENSE = "CLOSED"
 
-# Explicitly fetch every file needed for the build
+
 SRC_URI = " \
     file://client.c \
     file://client.h \
@@ -10,10 +10,10 @@ SRC_URI = " \
     file://Makefile \
 "
 
-# Point the build directory to where the files are actually unpacked
+
 S = "${WORKDIR}"
 
-# Pass BitBake's environment variables to your Makefile safely
+
 EXTRA_OEMAKE = "'CC=${CC}' 'CFLAGS=${CFLAGS}' 'LDFLAGS=${LDFLAGS}'"
 
 do_compile() {
