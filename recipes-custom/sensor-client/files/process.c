@@ -1,4 +1,5 @@
 #include "process.h"
+#include <time.h>
 static BiquadFilter seismo_filter;
 static int is_filter_initialized = 0;
 
@@ -54,7 +55,8 @@ SensorData processSensorBucket(SensorData local_bucket[BUCKET_SIZE]) {
     avg_data.accel_z = sum_accel_z / count;
     avg_data.humidity = sum_humidity / count;
     avg_data.seismo = sum_seismo / count;
+    avg_data.timestamp = (unsigned long long)time(NULL);;
     sum_seismo_raw /= count;
-    printf("Raw Avg data: %.3f\n", sum_seismo_raw);
+    // printf("Raw Avg data: %.3f\n", sum_seismo_raw);
     return avg_data;
 }

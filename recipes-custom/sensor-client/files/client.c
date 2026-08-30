@@ -9,15 +9,12 @@
 #include <time.h>
 #include "client.h"
 
-
-
 // Shared Vars
 SensorData bucket[BUCKET_SIZE];
 int bucket_count = 0;
 int client_id = 0; 
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cvar = PTHREAD_COND_INITIALIZER;
-
 
 float random_float(float min, float max) {
     float scale = rand() / (float) RAND_MAX;
@@ -63,11 +60,14 @@ void* net_thread_func(void* arg) {
         memcpy(local_bucket, bucket, sizeof(SensorData) * BUCKET_SIZE);
         bucket_count = 0;
         pthread_mutex_unlock(&lock);
+        
         SensorData avg_data = processSensorBucket(local_bucket);
         char message[256];
+        
+        // Formatted to include the newly added timestamp
         snprintf(message, sizeof(message), 
-            "#%llu [ID:%d] Accel=[%.3f, %.3f, %.3f] Hum=%.2f%% Seismo=%.4f mm/s\n",
-            packet_num, avg_data.id, avg_data.accel_x, avg_data.accel_y, avg_data.accel_z, avg_data.humidity, avg_data.seismo);
+            "#%llu [ID:%d TS:%llu] Accel=[%.3f, %.3f, %.3f] Hum=%.2f%% Seismo=%.4f mm/s\n",
+            packet_num, avg_data.id, avg_data.timestamp, avg_data.accel_x, avg_data.accel_y, avg_data.accel_z, avg_data.humidity, avg_data.seismo);
 
         if (send(sock, &avg_data, sizeof(SensorData), 0) < 0) {
             printf("Server Thread: Failed to send data\n");
@@ -86,15 +86,20 @@ void* net_thread_func(void* arg) {
     return NULL;
 }
 
-// THREAD 2: Simulation Thread --- This Thread an also be used to gather data from connected sensors
+// THREAD 2: Simulation Thread --- This Thread can also be used to gather data from connected sensors
 void* sim_thread_func(void* arg) {
     printf("Sim Thread: Starting data generation...\n");
     srand((unsigned int)time(NULL));
     float time_step = 0.0f;
+    
     while (1) {
         SensorData data;
-        // 1. Accel: Continuous sinusoidal vibration + gravity baseline + sensor noise
+        
+        // Apply ID and generate current timestamp
         data.id = client_id; 
+        data.timestamp = (unsigned long long)time(NULL);
+
+        // 1. Accel: Continuous sinusoidal vibration + gravity baseline + sensor noise
         data.accel_x = 0.5f * sin(time_step * 2.5f) + random_float(-0.5f, 0.5f); 
         data.accel_y = 0.3f * cos(time_step * 1.8f) + random_float(-0.5f, 0.5f);
         data.accel_z = 9.81f + 0.1f * sin(time_step * 5.0f) + random_float(-0.02f, 0.02f);
@@ -107,32 +112,29 @@ void* sim_thread_func(void* arg) {
         float earthquake_spike = (rand() % 1000 < 50) ? random_float(3.0f, 8.0f) : 0.0f; 
         data.seismo = background_rumble + earthquake_spike + random_float(0.0f, 0.02f);
 
-        
         pthread_mutex_lock(&lock);
         if (bucket_count < BUCKET_SIZE) {
             bucket[bucket_count++] = data;
         }
 
-        // Notify the OTher Thread
+        // Notify the Other Thread
         if (bucket_count >= BUCKET_SIZE) {
             pthread_cond_signal(&cvar);
         }
         pthread_mutex_unlock(&lock);
 
-        //1 KHz
+        // 1 KHz
         usleep(1000); 
     }
     return NULL;
 }
 
 int main(int argc, char *argv[]) {
-    
     if (argc < 2) {
         printf("Usage: %s <client_id>\n", argv[0]);
         return 1;
     }
 
-    
     client_id = atoi(argv[1]);
     printf("Starting client with ID: %d\n", client_id);
 
