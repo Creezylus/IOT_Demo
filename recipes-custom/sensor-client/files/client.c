@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <math.h>
 #include <time.h>
 #include "client.h"
 
@@ -89,29 +90,38 @@ void* net_thread_func(void* arg) {
 void* sim_thread_func(void* arg) {
     printf("Sim Thread: Starting data generation...\n");
     srand((unsigned int)time(NULL));
-
+    float time_step = 0.0f;
     while (1) {
         // Generate simulated data
-        SensorData data;
-        data.id = client_id; 
-        data.accel_x = random_float(-1.0f, 1.0f); 
-        data.accel_y = random_float(-1.0f, 1.0f);
-        data.accel_z = random_float(9.7f, 9.9f);
-        data.humidity = random_float(30.0f, 60.0f);
-        data.seismo = random_float(0.0f, 2.5f);
 
-        // Lock the mutex and add to the bucket
+        SensorData data;
+        // 1. Accel: Continuous sinusoidal vibration + gravity baseline + sensor noise
+        data.id = client_id; 
+        data.accel_x = 0.5f * sin(time_step * 2.5f) + random_float(-0.5f, 0.5f); 
+        data.accel_y = 0.3f * cos(time_step * 1.8f) + random_float(-0.5f, 0.5f);
+        data.accel_z = 9.81f + 0.1f * sin(time_step * 5.0f) + random_float(-0.02f, 0.02f);
+        
+        // 2. Humidity: Extremely slow drift throughout the day
+        data.humidity = 45.0f + 15.0f * sin(time_step * 0.001f) + random_float(-1.0f, 1.0f);
+        
+        // 3. Seismo: Low-level background rumble + 5% chance of a high-magnitude spike
+        float background_rumble = fabs(0.1f * sin(time_step * 0.5f));
+        float earthquake_spike = (rand() % 1000 < 50) ? random_float(3.0f, 8.0f) : 0.0f; 
+        data.seismo = background_rumble + earthquake_spike + random_float(0.0f, 0.02f);
+
+        
         pthread_mutex_lock(&lock);
         if (bucket_count < BUCKET_SIZE) {
             bucket[bucket_count++] = data;
         }
 
-        // Bucket full notify the server thread
+        // Notify the OTher Thread
         if (bucket_count >= BUCKET_SIZE) {
             pthread_cond_signal(&cvar);
         }
         pthread_mutex_unlock(&lock);
 
+        //1 KHz
         usleep(1000); 
     }
     return NULL;
