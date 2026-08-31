@@ -4,15 +4,17 @@ mod log;
 mod db;
 
 use axum::{
-    extract::State,
+    extract::{Path, Query, State},
     http::StatusCode,
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
+use db::models::{EdgeRow, SensorReadingRow, SensorRow, StationLocationRow, StationRow};
 use db::{edges, sensor_readings, sensors, station_locations, stations};
 
 #[derive(Debug, Deserialize)]
@@ -41,6 +43,16 @@ pub struct SensorReading {
     pub seis: f32,
 }
 
+#[derive(Debug, Deserialize)]
+struct ReadingsQuery {
+    station_id: String,
+    edge_id: Option<i32>,
+    sensor_id: Option<i32>,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+    limit: Option<i64>,
+}
+
 #[tokio::main]
 async fn main() {
     let database_url = std::env::var("DATABASE_URL")
@@ -54,6 +66,11 @@ async fn main() {
 
     let app = Router::new()
         .route("/api/v1/ingest", post(ingest_data))
+        .route("/api/v1/stations", get(list_stations_handler))
+        .route("/api/v1/stations/:station_id/locations", get(list_locations_handler))
+        .route("/api/v1/stations/:station_id/edges", get(list_edges_handler))
+        .route("/api/v1/stations/:station_id/edges/:edge_id/sensors", get(list_sensors_handler))
+        .route("/api/v1/readings", get(list_readings_handler))
         .with_state(pool);
 
     let server_address = std::env::var("SERVER_ADDRESS").expect("SERVER_ADDRESS environment variable is not set");
@@ -115,7 +132,6 @@ async fn upsert_station_location(
     Ok(())
 }
 
-/// sensor reading in the packet.
 async fn ingest_edge_packet(
     pool: &PgPool,
     station_id: &str,
@@ -151,6 +167,65 @@ async fn ingest_sensor_reading(
         .map_err(db_err("insert reading"))?;
 
     Ok(())
+}
+
+async fn list_stations_handler(
+    State(pool): State<PgPool>,
+) -> Result<Json<Vec<StationRow>>, (StatusCode, String)> {
+    stations::list_stations(&pool)
+        .await
+        .map(Json)
+        .map_err(db_err("list stations"))
+}
+
+async fn list_locations_handler(
+    State(pool): State<PgPool>,
+    Path(station_id): Path<String>,
+) -> Result<Json<Vec<StationLocationRow>>, (StatusCode, String)> {
+    station_locations::list_locations(&pool, &station_id, 500)
+        .await
+        .map(Json)
+        .map_err(db_err("list locations"))
+}
+
+async fn list_edges_handler(
+    State(pool): State<PgPool>,
+    Path(station_id): Path<String>,
+) -> Result<Json<Vec<EdgeRow>>, (StatusCode, String)> {
+    edges::list_edges(&pool, &station_id)
+        .await
+        .map(Json)
+        .map_err(db_err("list edges"))
+}
+
+async fn list_sensors_handler(
+    State(pool): State<PgPool>,
+    Path((station_id, edge_id)): Path<(String, i32)>,
+) -> Result<Json<Vec<SensorRow>>, (StatusCode, String)> {
+    sensors::list_sensors(&pool, &station_id, edge_id)
+        .await
+        .map(Json)
+        .map_err(db_err("list sensors"))
+}
+
+async fn list_readings_handler(
+    State(pool): State<PgPool>,
+    Query(params): Query<ReadingsQuery>,
+) -> Result<Json<Vec<SensorReadingRow>>, (StatusCode, String)> {
+    let limit = params.limit.unwrap_or(1000).min(10000);
+
+    sensor_readings::list_readings(
+        &pool,
+        &params.station_id,
+        params.edge_id,
+        params.sensor_id,
+        params.from,
+        params.to,
+        limit,
+    )
+    .await
+    .map(Json)
+    .map_err(db_err("list readings"))
 }
 
 fn db_err(step: &'static str) -> impl Fn(sqlx::Error) -> (StatusCode, String) {

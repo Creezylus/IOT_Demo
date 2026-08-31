@@ -1,10 +1,9 @@
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
+use super::models::SensorReadingRow;
 use crate::SensorReading;
 
-/// Insert one sensor reading. Deduplicates on
-/// (station_id, edge_id, sensor_id, raw_timestamp) via the unique index,
-/// matching the original inline query.
 pub async fn insert_reading(
     pool: &PgPool,
     station_id: &str,
@@ -32,4 +31,37 @@ pub async fn insert_reading(
     .await?;
 
     Ok(())
+}
+
+pub async fn list_readings(
+    pool: &PgPool,
+    station_id: &str,
+    edge_id: Option<i32>,
+    sensor_id: Option<i32>,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+    limit: i64,
+) -> Result<Vec<SensorReadingRow>, sqlx::Error> {
+    sqlx::query_as::<_, SensorReadingRow>(
+        r#"
+        SELECT id, station_id, edge_id, sensor_id, raw_timestamp, reading_time,
+               a_x, a_y, a_z, hum, seis, received_at
+        FROM sensor_readings
+        WHERE station_id = $1
+          AND ($2::INTEGER IS NULL OR edge_id = $2)
+          AND ($3::INTEGER IS NULL OR sensor_id = $3)
+          AND ($4::TIMESTAMPTZ IS NULL OR reading_time >= $4)
+          AND ($5::TIMESTAMPTZ IS NULL OR reading_time <= $5)
+        ORDER BY reading_time DESC
+        LIMIT $6
+        "#,
+    )
+    .bind(station_id)
+    .bind(edge_id)
+    .bind(sensor_id)
+    .bind(from)
+    .bind(to)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }

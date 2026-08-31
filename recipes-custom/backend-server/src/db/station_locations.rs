@@ -1,8 +1,7 @@
 use sqlx::PgPool;
 
-/// Append a row to the station_locations history table. Call this only
-/// when the incoming (latitude, longitude) differs from what's on file,
-/// so the history table only records actual moves.
+use super::models::StationLocationRow;
+
 pub async fn record_location_change(
     pool: &PgPool,
     station_id: &str,
@@ -20,4 +19,20 @@ pub async fn record_location_change(
     .await?;
 
     Ok(())
+}
+
+pub async fn list_locations(
+    pool: &PgPool,
+    station_id: &str,
+    limit: i64,
+) -> Result<Vec<StationLocationRow>, sqlx::Error> {
+    sqlx::query_as::<_, StationLocationRow>(
+        "SELECT id, station_id, latitude, longitude, effective_at \
+         FROM station_locations WHERE station_id = $1 \
+         ORDER BY effective_at DESC LIMIT $2",
+    )
+    .bind(station_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }

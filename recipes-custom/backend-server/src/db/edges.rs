@@ -1,6 +1,7 @@
 use sqlx::PgPool;
 
-/// Register an edge under a station if it hasn't been seen before.
+use super::models::EdgeRow;
+
 pub async fn upsert_edge(
     pool: &PgPool,
     station_id: &str,
@@ -16,4 +17,14 @@ pub async fn upsert_edge(
     .await?;
 
     Ok(())
+}
+
+pub async fn list_edges(pool: &PgPool, station_id: &str) -> Result<Vec<EdgeRow>, sqlx::Error> {
+    sqlx::query_as::<_, EdgeRow>(
+        "SELECT station_id, edge_id, label, created_at, last_seen_at \
+         FROM edges WHERE station_id = $1 ORDER BY edge_id",
+    )
+    .bind(station_id)
+    .fetch_all(pool)
+    .await
 }

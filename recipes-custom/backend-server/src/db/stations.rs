@@ -1,6 +1,7 @@
 use sqlx::PgPool;
 
-/// Look up the station's currently stored location, if the station exists.
+use super::models::StationRow;
+
 pub async fn get_current_location(
     pool: &PgPool,
     station_id: &str,
@@ -15,8 +16,6 @@ pub async fn get_current_location(
     Ok(row)
 }
 
-/// Insert a brand-new station row. Uses the station_id as the initial name,
-/// matching the original inline query's behavior.
 pub async fn create_station(
     pool: &PgPool,
     station_id: &str,
@@ -37,7 +36,6 @@ pub async fn create_station(
     Ok(())
 }
 
-/// Update an existing station's last-known location and heartbeat.
 pub async fn update_station_location(
     pool: &PgPool,
     station_id: &str,
@@ -55,4 +53,13 @@ pub async fn update_station_location(
     .await?;
 
     Ok(())
+}
+
+pub async fn list_stations(pool: &PgPool) -> Result<Vec<StationRow>, sqlx::Error> {
+    sqlx::query_as::<_, StationRow>(
+        "SELECT station_id, name, latitude, longitude, created_at, last_seen_at \
+         FROM stations ORDER BY station_id",
+    )
+    .fetch_all(pool)
+    .await
 }
