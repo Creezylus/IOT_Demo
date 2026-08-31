@@ -3,7 +3,7 @@ CFLAGS = -Wall -Wextra -pthread
 TARGET = edge_client
 
 
-SRCS = server.c
+SRCS = server.c log.c
 OBJS = $(SRCS:.c=.o)
 
 

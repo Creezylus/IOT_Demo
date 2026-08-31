@@ -8,6 +8,7 @@
 #include <time.h>
 #include <errno.h>
 #include "server.h"
+#include "log.h"
 
 // --- Helper Functions ---
 long long current_timestamp_ms() {
@@ -18,21 +19,21 @@ long long current_timestamp_ms() {
 
 #ifdef DO_DEBUG
 void print_edge_packet(const EdgePacket *packet) {
-    printf("\n=== Sending Edge Packet to Station (Edge ID: %d), Total size of Edge Packet: %d ===\n", packet->edge_id, sizeof(EdgePacket));
+    iotlogger("\n=== Sending Edge Packet to Station (Edge ID: %d), Total size of Edge Packet: %d ===\n", packet->edge_id, sizeof(EdgePacket));
     
     for (int i = 0; i < MAX_CLIENTS; i++) {        
         const char* status = packet->active_flags[i] ? "FRESH" : "STALE/EMPTY";
         
-        printf("  [Slot %d - %s] Sensor ID: %d | Time: %llu \n", 
+        iotlogger("  [Slot %d - %s] Sensor ID: %d | Time: %llu \n", 
                i, status, packet->sensors[i].id, packet->sensors[i].timestamp);
-        printf("             Accel: (%.3f, %.3f, %.3f) | Hum: %.3f | Seis: %.3f\n",
+        iotlogger("             Accel: (%.3f, %.3f, %.3f) | Hum: %.3f | Seis: %.3f\n",
                packet->sensors[i].accel_x,
                packet->sensors[i].accel_y,
                packet->sensors[i].accel_z,
                packet->sensors[i].humidity,
                packet->sensors[i].seismo);
     }
-    printf("========================================================\n\n");
+    iotlogger("========================================================\n\n");
 }
 #endif
 
@@ -40,12 +41,12 @@ void print_edge_packet(const EdgePacket *packet) {
 int main(int argc, char *argv[]) {
     // 1. Parse Edge ID
     if (argc != 2) {
-        printf("Usage: %s <edge_id>\n", argv[0]);
+        iotlogger("Usage: %s <edge_id>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
     int edge_id = atoi(argv[1]);
-    printf("Startingz Edge Client [ID: %d]\n", edge_id);
+    iotlogger("Startingz Edge Client [ID: %d]\n", edge_id);
 
     // 2. Setup Station Client Socket (Connecting to Upstream Server)
     int station_client = socket(AF_INET, SOCK_STREAM, 0);
@@ -62,12 +63,12 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    printf("Connecting to Station at %s:%d...\n", STATION_IP, STATION_PORT);
+    iotlogger("Connecting to Station at %s:%d...\n", STATION_IP, STATION_PORT);
     if (connect(station_client, (struct sockaddr *)&station_addr, sizeof(station_addr)) < 0) {
         perror("Connection to station failed");
         exit(EXIT_FAILURE); 
     }
-    printf("Connected to Station successfully.\n");
+    iotlogger("Connected to Station successfully.\n");
 
     // 3. Setup Edge Server (Listening for Sensors)
     int server_fd, new_socket, client_sockets[MAX_CLIENTS];
@@ -106,7 +107,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    printf("Edge Server listening for sensors on port %d...\n", PORT);
+    iotlogger("Edge Server listening for sensors on port %d...\n", PORT);
 
     // 4. Timer and Payload setup
     EdgePacket current_payload;
@@ -134,7 +135,7 @@ int main(int argc, char *argv[]) {
         activity = select(max_sd + 1, &readfds, NULL, NULL, &timeout);
 
         if ((activity < 0) && (errno != EINTR)) {
-            printf("Select error\n");
+            iotlogger("Select error\n");
         }
 
         // Check if 1 second has passed
@@ -176,7 +177,7 @@ int main(int argc, char *argv[]) {
             for (i = 0; i < MAX_CLIENTS; i++) {
                 if (client_sockets[i] == 0) {
                     client_sockets[i] = new_socket;
-                    printf("Sensor connected: assigned to slot %d (FD %d)\n", i, new_socket);
+                    iotlogger("Sensor connected: assigned to slot %d (FD %d)\n", i, new_socket);
                     break;
                 }
             }
@@ -189,7 +190,7 @@ int main(int argc, char *argv[]) {
             if (FD_ISSET(sd, &readfds)) {
                 if ((valread = recv(sd, buffer, BUFFER_SIZE - 1, 0)) == 0) {
                     // Client disconnected
-                    printf("Sensor in slot %d disconnected.\n", i);
+                    iotlogger("Sensor in slot %d disconnected.\n", i);
                     close(sd);
                     client_sockets[i] = 0;
                     current_payload.active_flags[i] = 0; // Clear its flag

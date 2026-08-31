@@ -5,6 +5,8 @@ LICENSE = "CLOSED"
 SRC_URI = " \
     file://server.c \
     file://server.h \
+    file://log.c \
+    file://log.h \
     file://Makefile \
 "
 
