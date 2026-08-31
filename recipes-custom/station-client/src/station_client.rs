@@ -1,5 +1,6 @@
 use std::mem;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
@@ -8,49 +9,41 @@ const HOST: &str = "192.168.1.185";
 const PORT: u16 = 9090;
 const MAX_SENSORS: usize = 5;
 const MAX_EDGE: usize = 3;
+use serde::Serialize;
 
-// #[repr(C, packed)] matches the C side's __attribute__((packed)):
-// Veryyy Important depending on your C Compiler if this may cause mismatch in readings and print out grabage values.
+// Add 'pub' to structures so backend_client.rs can utilize them
 #[repr(C, packed)]
-#[derive(Debug, Copy, Clone)]
-struct Sensor {
-    id: i32,
-    timestamp: u64,
-    a_x: f32,
-    a_y: f32,
-    a_z: f32,
-    hum: f32,
-    seis: f32,
+#[derive(Debug, Copy, Clone, Serialize)]
+pub struct Sensor {
+    pub id: i32,
+    pub timestamp: u64,
+    pub a_x: f32,
+    pub a_y: f32,
+    pub a_z: f32,
+    pub hum: f32,
+    pub seis: f32,
 }
 
 #[repr(C, packed)]
-#[derive(Debug, Copy, Clone)]
-struct EdgePacket {
-    edge_id: i32,
-    active_flags: [i32; MAX_SENSORS],
-    sensors: [Sensor; MAX_SENSORS],
+#[derive(Debug, Copy, Clone, Serialize)]
+pub struct EdgePacket {
+    pub edge_id: i32,
+    pub active_flags: [i32; MAX_SENSORS],
+    pub sensors: [Sensor; MAX_SENSORS],
 }
 
-/// Entry point for the station client's own OS thread. Builds and owns
-/// a dedicated tokio runtime so this can run independent of whatever
-/// runtime (if any) the caller's thread is using.
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn std::error::Error>> {
     let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(serve())
+    rt.block_on(serve(shared_data))
 }
 
-async fn serve() -> Result<(), Box<dyn std::error::Error>> {
+async fn serve(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(format!("{}:{}", HOST, PORT)).await?;
     let packet_size = mem::size_of::<EdgePacket>();
 
     println!("Station Server listening on {}:{}...", HOST, PORT);
-    println!("Expecting packet size of {} bytes.\n", packet_size);
-
-    // Sanity check: if this ever fails, the struct definitions have
-    // drifted from the C side's on-wire layout.
     debug_assert_eq!(packet_size, 184, "EdgePacket size mismatch with C sender");
 
-    // Semaphore strictly limits concurrent connections to 3
     let semaphore = Arc::new(Semaphore::new(MAX_EDGE));
 
     loop {
@@ -58,48 +51,82 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         let permit = match semaphore.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
-                println!("Max edge clients ({}) reached. Denying connection from {}", MAX_EDGE, addr);
+                println!("Max edge clients reached. Denying {}", addr);
                 continue;
             }
         };
 
+        // Clone the Arc pointer for the specific connection task
+        let task_data = Arc::clone(&shared_data);
+
         tokio::spawn(async move {
             println!("--- Edge Client Connected from {} ---", addr);
-            let mut buffer = vec![0u8; packet_size];
+            let mut read_buf = vec![0u8; packet_size];
 
             loop {
-                // Read exactly the required bytes for one struct
-                match socket.read_exact(&mut buffer).await {
+                match socket.read_exact(&mut read_buf).await {
                     Ok(_) => {
-                        // Safely cast the raw bytes into our C-compatible struct.
-                        // read_unaligned is required since EdgePacket is packed
-                        // and buffer.as_ptr() has no alignment guarantee anyway.
-                        let packet: EdgePacket = unsafe {
-                            std::ptr::read_unaligned(buffer.as_ptr() as *const EdgePacket)
+                        let mut packet: EdgePacket = unsafe {
+                            std::ptr::read_unaligned(read_buf.as_ptr() as *const EdgePacket)
                         };
 
-                        // Packed structs force field alignment to 1, so taking
-                        // a reference to any field (which println! does under
-                        // the hood) is UB. Copy fields into locals first —
-                        // that copy is a properly-aligned stack value.
+                        // OVERWRITE TIMESTAMP WITH CURRENT LAPTOP TIME
+                        let current_ts = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+
+                        for i in 0..MAX_SENSORS {
+                            if packet.active_flags[i] == 1 {
+                                // Extract the sensor, modify its ts, and safely put it back
+                                // to avoid unaligned reference warnings on packed structs
+                                let mut s = packet.sensors[i];
+                                s.timestamp = current_ts;
+                                packet.sensors[i] = s;
+                            } else {
+                                let s = Sensor {
+                                    id: -1,
+                                    timestamp: 0,
+                                    a_x: 0.0,
+                                    a_y: 0.0,
+                                    a_z: 0.0,
+                                    hum: 0.0,
+                                    seis: 0.0,
+                                };
+                                packet.sensors[i] = s;
+                            }
+                        }
+
+                        // SAFELY APPEND TO BUFFER
+                        {
+                            let mut lock = task_data.lock().unwrap();
+                            lock.push(packet);
+                        }
+
+                        // ... Original printing logic ...
                         let edge_id = packet.edge_id;
-                        let active_flags = packet.active_flags; // whole array copy
-                        let sensors = packet.sensors; // whole array copy
+                        let active_flags = packet.active_flags;
+                        let sensors = packet.sensors;
 
                         println!("\n[Edge ID: {}]", edge_id);
-
+                        // Rest of the display logic...
                         let mut has_active_sensors = false;
 
                         for i in 0..MAX_SENSORS {
                             if active_flags[i] == 1 {
                                 has_active_sensors = true;
-                                let s = sensors[i]; // aligned local copy of Sensor
-                                let (id, a_x, a_y, a_z, hum, seis) =
-                                    (s.id, s.a_x, s.a_y, s.a_z, s.hum, s.seis);
+                                let s = sensors[i];
+                                let id = { s.id };
+                                let ts = { s.timestamp };
+                                let a_x = { s.a_x };
+                                let a_y = { s.a_y };
+                                let a_z = { s.a_z };
+                                let hum = { s.hum };
+                                let seis = { s.seis };
 
                                 println!(
-                                    "  -> Slot {} [Sensor ID: {}]: Accel=({:.3}, {:.3}, {:.3}) Hum={:.3}% Seismo={:.4}",
-                                    i, id, a_x, a_y, a_z, hum, seis
+                                    "  -> Slot {} [Sensor ID: {}]: Accel=({:.3}, {:.3}, {:.3}) Hum={:.3}% Seismo={:.4} (TS: {})",
+                                    i, id, a_x, a_y, a_z, hum, seis, ts
                                 );
                             }
                         }
@@ -109,13 +136,11 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     Err(e) => {
-                        println!("Edge client {} disconnected or read error: {}", addr, e);
+                        println!("Edge client {} disconnected: {}", addr, e);
                         break;
                     }
                 }
             }
-
-            // Drop permit to free up a slot for a new client
             drop(permit);
         });
     }

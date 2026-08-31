@@ -3,7 +3,11 @@
 
 #define BUCKET_SIZE 1000
 
-typedef struct __attribute__((__packed__)){
+#ifndef __PACKED__ 
+    #define __PACKED__ __attribute__((__packed__))
+#endif
+
+typedef struct __PACKED__{
     int id;
     unsigned long long timestamp;
     float accel_x;
