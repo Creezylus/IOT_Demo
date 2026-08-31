@@ -1,3 +1,8 @@
+
+#[path = "../../rust_tools/logger/log.rs"]
+mod log;
+
+
 use axum::{
     extract::State,
     http::StatusCode,
@@ -51,7 +56,7 @@ async fn main() {
 
     //TODO get this from env
     let listener = tokio::net::TcpListener::bind("0.0.0.0:5000").await.unwrap();
-    println!("Server running on http://127.0.0.1:5000");
+    iotlogger!("Server running on http://127.0.0.1:5000");
 
     axum::serve(listener, app).await.unwrap();
 }
@@ -146,7 +151,7 @@ async fn ingest_data(
             .await;
 
             if let Err(e) = insert_result {
-                eprintln!("Failed to insert reading: {}", e);
+                iotlogger!("Failed to insert reading: {}", e);
                 return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
             }
         }

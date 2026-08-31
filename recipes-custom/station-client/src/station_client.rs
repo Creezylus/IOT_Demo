@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
+use crate::iotlogger;
 
 //const HOST: &str = "192.168.1.185";
 const HOST: &str = "127.0.0.1";
@@ -42,7 +43,7 @@ async fn serve(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn s
     let listener = TcpListener::bind(format!("{}:{}", HOST, PORT)).await?;
     let packet_size = mem::size_of::<EdgePacket>();
 
-    println!("Station Server listening on {}:{}...", HOST, PORT);
+    iotlogger!("Station Server listening on {}:{}...", HOST, PORT);
     debug_assert_eq!(packet_size, 184, "EdgePacket size mismatch with C sender");
 
     let semaphore = Arc::new(Semaphore::new(MAX_EDGE));
@@ -52,7 +53,7 @@ async fn serve(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn s
         let permit = match semaphore.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
-                println!("Max edge clients reached. Denying {}", addr);
+                iotlogger!("Max edge clients reached. Denying {}", addr);
                 continue;
             }
         };
@@ -61,7 +62,7 @@ async fn serve(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn s
         let task_data = Arc::clone(&shared_data);
 
         tokio::spawn(async move {
-            println!("--- Edge Client Connected from {} ---", addr);
+            iotlogger!("--- Edge Client Connected from {} ---", addr);
             let mut read_buf = vec![0u8; packet_size];
 
             loop {
@@ -109,7 +110,7 @@ async fn serve(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn s
                         let active_flags = packet.active_flags;
                         let sensors = packet.sensors;
 
-                        println!("\n[Edge ID: {}]", edge_id);
+                        iotlogger!("\n[Edge ID: {}]", edge_id);
                         // Rest of the display logic...
                         let mut has_active_sensors = false;
 
@@ -125,7 +126,7 @@ async fn serve(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn s
                                 let hum = { s.hum };
                                 let seis = { s.seis };
 
-                                println!(
+                                iotlogger!(
                                     "  -> Slot {} [Sensor ID: {}]: Accel=({:.3}, {:.3}, {:.3}) Hum={:.3}% Seismo={:.4} (TS: {})",
                                     i, id, a_x, a_y, a_z, hum, seis, ts
                                 );
@@ -133,11 +134,11 @@ async fn serve(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn s
                         }
 
                         if !has_active_sensors {
-                            println!("  -> No active sensor data in this window.");
+                            iotlogger!("  -> No active sensor data in this window.");
                         }
                     }
                     Err(e) => {
-                        println!("Edge client {} disconnected: {}", addr, e);
+                        iotlogger!("Edge client {} disconnected: {}", addr, e);
                         break;
                     }
                 }

@@ -3,6 +3,8 @@ use std::time::Duration;
 use crate::station_client::EdgePacket;
 use reqwest::Client;
 use serde::Serialize;
+use crate::iotlogger;
+
 
 #[derive(Debug, Serialize)]
 pub struct ApiPayload {
@@ -25,14 +27,14 @@ pub fn run(shared_data: Arc<Mutex<Vec<EdgePacket>>>, station_id: String, latitud
             };
 
             if buffered_data.is_empty() {
-                println!("[Backend] No new data in the last minute.");
+                iotlogger!("[Backend] No new data in the last minute.");
                 continue;
             }
 
-            println!("[Backend] Publishing {} packets to API...", buffered_data.len());
+            iotlogger!("[Backend] Publishing {} packets to API...", buffered_data.len());
 
             if let Err(e) = send_payload(&station_id, latitude, longitude, &buffered_data).await {
-                eprintln!("[Backend] Network error publishing to API: {}", e);
+                iotlogger!("[Backend] Network error publishing to API: {}", e);
             }
         }
     });
@@ -58,10 +60,10 @@ async fn send_payload(station_id: &str, latitude: f64, longitude: f64, packets: 
 
     let status = response.status();
     if status.is_success() {
-        println!("Successfully ingested data for station: {}", station_id);
+        iotlogger!("Successfully ingested data for station: {}", station_id);
     } else {
         let body = response.text().await.unwrap_or_default();
-        eprintln!("Failed to ingest data. Status: {}. Body: {}", status, body);
+        iotlogger!("Failed to ingest data. Status: {}. Body: {}", status, body);
     }
 
     Ok(())

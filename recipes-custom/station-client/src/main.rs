@@ -1,8 +1,13 @@
 mod station_client;
 mod backend_client;
 
+
 use std::env;
 use std::sync::{Arc, Mutex};
+
+#[path = "../../rust_tools/logger/log.rs"]
+mod log;
+
 
 fn main() {
     let args: Vec<String> = env::args().collect();
