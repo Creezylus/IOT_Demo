@@ -4,7 +4,7 @@ LDFLAGS += -lm
 TARGET = sensor_client
 
 
-SRCS = client.c process.c
+SRCS = client.c process.c log.c
 OBJS = $(SRCS:.c=.o)
 
 

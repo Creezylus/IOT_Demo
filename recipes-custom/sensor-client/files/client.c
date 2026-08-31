@@ -8,6 +8,7 @@
 #include <math.h>
 #include <time.h>
 #include "client.h"
+#include "log.h"
 
 // Shared Vars
 SensorData bucket[BUCKET_SIZE];
@@ -23,11 +24,11 @@ float random_float(float min, float max) {
 
 // THREAD 1: Network & Processing Thread
 void* net_thread_func(void* arg) {
-    printf("Server Thread: Attempting to connect to %s:%d...\n", SERVER_ADDRESS, PORT);
+    iotlogger("Server Thread: Attempting to connect to %s:%d...\n", SERVER_ADDRESS, PORT);
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
-        printf("Server Thread: Socket creation error\n");
+        iotlogger("Server Thread: Socket creation error\n");
         return NULL;
     }
 
@@ -36,16 +37,16 @@ void* net_thread_func(void* arg) {
     serv_addr.sin_port = htons(PORT);
     
     if (inet_pton(AF_INET, SERVER_ADDRESS, &serv_addr.sin_addr) <= 0) {
-        printf("Server Thread: Invalid address\n");
+        iotlogger("Server Thread: Invalid address\n");
         return NULL;
     }
 
     if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        printf("Server Thread: Failed to connect\n");
+        iotlogger("Server Thread: Failed to connect\n");
         return NULL;
     }
     
-    printf("Server Thread: Successfully connected to server!\n");
+    iotlogger("Server Thread: Successfully connected to server!\n");
 
     unsigned long long packet_num = 1;
     SensorData local_bucket[BUCKET_SIZE];
@@ -70,13 +71,13 @@ void* net_thread_func(void* arg) {
             packet_num, avg_data.id, avg_data.timestamp, avg_data.accel_x, avg_data.accel_y, avg_data.accel_z, avg_data.humidity, avg_data.seismo);
 
         if (send(sock, &avg_data, sizeof(SensorData), 0) < 0) {
-            printf("Server Thread: Failed to send data\n");
+            iotlogger("Server Thread: Failed to send data\n");
             break;
         } else {
             char print_msg[256];
             strcpy(print_msg, message);
             print_msg[strcspn(print_msg, "\n")] = 0;
-            printf("Server Thread: Sent -> %s\n", print_msg);
+            iotlogger("Server Thread: Sent -> %s\n", print_msg);
         }
 
         packet_num++;
@@ -88,7 +89,7 @@ void* net_thread_func(void* arg) {
 
 // THREAD 2: Simulation Thread --- This Thread can also be used to gather data from connected sensors
 void* sim_thread_func(void* arg) {
-    printf("Sim Thread: Starting data generation...\n");
+    iotlogger("Sim Thread: Starting data generation...\n");
     srand((unsigned int)time(NULL));
     float time_step = 0.0f;
     
@@ -131,12 +132,12 @@ void* sim_thread_func(void* arg) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        printf("Usage: %s <client_id>\n", argv[0]);
+        iotlogger("Usage: %s <client_id>\n", argv[0]);
         return 1;
     }
 
     client_id = atoi(argv[1]);
-    printf("Starting client with ID: %d\n", client_id);
+    iotlogger("Starting client with ID: %d\n", client_id);
 
     pthread_t net_thread, sim_thread;
 
