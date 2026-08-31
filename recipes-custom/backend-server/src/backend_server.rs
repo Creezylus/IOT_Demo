@@ -41,7 +41,6 @@ pub struct SensorReading {
 
 #[tokio::main]
 async fn main() {
-    //TODO get this from env
     let database_url = std::env::var("DATABASE_URL")
     .expect("DATABASE_URL environment variable is not set");
 
@@ -55,7 +54,6 @@ async fn main() {
         .route("/api/v1/ingest", post(ingest_data))
         .with_state(pool);
 
-    //TODO get this from env
     let server_address = std::env::var("SERVER_ADDRESS").expect("SERVER_ADDRESS environment variable is not set");
     let listener = tokio::net::TcpListener::bind(&server_address).await.unwrap();
     iotlogger!("SERVER_ADDRESS: {}", server_address);
