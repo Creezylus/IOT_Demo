@@ -1,5 +1,6 @@
 #include "process.h"
 #include <time.h>
+#include <math.h>
 static BiquadFilter seismo_filter;
 static int is_filter_initialized = 0;
 

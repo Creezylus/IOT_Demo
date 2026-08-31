@@ -1,5 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -pthread
+LDFLAGS += -lm
 TARGET = sensor_client
 
 
@@ -11,7 +12,7 @@ all: $(TARGET)
 
 # Link the executable
 $(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TARGET) $(OBJS)
+	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS)  $(LDFLAGS)
 
 # Compile C files to object files
 %.o: %.c
