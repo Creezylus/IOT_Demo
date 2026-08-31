@@ -42,11 +42,12 @@ pub struct SensorReading {
 #[tokio::main]
 async fn main() {
     //TODO get this from env
-    let database_url = "postgres://creezylus:admin@localhost/iot_metrics";
+    let database_url = std::env::var("DATABASE_URL")
+    .expect("DATABASE_URL environment variable is not set");
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect(database_url)
+        .connect(&database_url)
         .await
         .expect("Failed to connect to PostgreSQL");
 
@@ -55,8 +56,9 @@ async fn main() {
         .with_state(pool);
 
     //TODO get this from env
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:5000").await.unwrap();
-    iotlogger!("Server running on http://127.0.0.1:5000");
+    let server_address = std::env::var("SERVER_ADDRESS").expect("SERVER_ADDRESS environment variable is not set");
+    let listener = tokio::net::TcpListener::bind(&server_address).await.unwrap();
+    iotlogger!("SERVER_ADDRESS: {}", server_address);
 
     axum::serve(listener, app).await.unwrap();
 }
