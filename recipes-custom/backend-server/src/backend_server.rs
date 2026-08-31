@@ -8,14 +8,14 @@ use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
-// Matches the JSON payload sent by the backend_client
 #[derive(Debug, Deserialize)]
 pub struct ApiPayload {
     pub station_id: String,
+    pub latitude: f64,
+    pub longitude: f64,
     pub data: Vec<EdgePacket>,
 }
 
-// Matches station_client::EdgePacket / Sensor on the wire (max 3 edges, max 5 sensors)
 #[derive(Debug, Deserialize)]
 pub struct EdgePacket {
     pub edge_id: i32,
@@ -50,8 +50,8 @@ async fn main() {
         .with_state(pool);
 
     //TODO get this from env
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    println!("Server running on http://127.0.0.1:3000");
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:5000").await.unwrap();
+    println!("Server running on http://127.0.0.1:5000");
 
     axum::serve(listener, app).await.unwrap();
 }
@@ -62,14 +62,51 @@ async fn ingest_data(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let station_id = &payload.station_id;
 
-    // 1. Ensure Station Exists
-    let _ = sqlx::query("INSERT INTO stations (station_id, name) VALUES ($1, $1) ON CONFLICT (station_id) DO NOTHING")
+    let existing = sqlx::query_as::<_, (f64, f64)>(
+        "SELECT latitude, longitude FROM stations WHERE station_id = $1",
+    )
         .bind(station_id)
-        .execute(&pool)
-        .await;
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None);
+
+    let location_changed = match existing {
+        Some((lat, lon)) => lat != payload.latitude || lon != payload.longitude,
+        None => true,
+    };
+
+    if existing.is_none() {
+        let _ = sqlx::query(
+            "INSERT INTO stations (station_id, name, latitude, longitude, last_seen_at) VALUES ($1, $1, $2, $3, now()) ON CONFLICT (station_id) DO NOTHING",
+        )
+            .bind(station_id)
+            .bind(payload.latitude)
+            .bind(payload.longitude)
+            .execute(&pool)
+            .await;
+    } else {
+        let _ = sqlx::query(
+            "UPDATE stations SET latitude = $2, longitude = $3, last_seen_at = now() WHERE station_id = $1",
+        )
+            .bind(station_id)
+            .bind(payload.latitude)
+            .bind(payload.longitude)
+            .execute(&pool)
+            .await;
+    }
+
+    if location_changed {
+        let _ = sqlx::query(
+            "INSERT INTO station_locations (station_id, latitude, longitude) VALUES ($1, $2, $3)",
+        )
+            .bind(station_id)
+            .bind(payload.latitude)
+            .bind(payload.longitude)
+            .execute(&pool)
+            .await;
+    }
 
     for packet in payload.data {
-        // 2. Ensure Edge Exists
         let _ = sqlx::query("INSERT INTO edges (station_id, edge_id) VALUES ($1, $2) ON CONFLICT (station_id, edge_id) DO NOTHING")
             .bind(station_id)
             .bind(packet.edge_id)
@@ -77,20 +114,16 @@ async fn ingest_data(
             .await;
 
         for (i, sensor) in packet.sensors.iter().enumerate() {
-            // Skip slots the edge marked inactive. 
             if packet.active_flags.get(i).copied().unwrap_or(0) != 1 {
                 continue;
             }
 
-            // 3. Ensure Sensor Exists
             let _ = sqlx::query("INSERT INTO sensors (station_id, edge_id, sensor_id) VALUES ($1, $2, $3) ON CONFLICT (station_id, edge_id, sensor_id) DO NOTHING")
                 .bind(station_id)
                 .bind(packet.edge_id)
                 .bind(sensor.id)
                 .execute(&pool)
                 .await;
-
-            // 4. Insert Reading
 
             let insert_result = sqlx::query(
                 r#"

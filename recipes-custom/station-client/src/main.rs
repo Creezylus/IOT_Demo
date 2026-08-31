@@ -1,37 +1,26 @@
 mod station_client;
 mod backend_client;
 
-use std::thread;
-use std::sync::{Arc, Mutex};
 use std::env;
+use std::sync::{Arc, Mutex};
 
 fn main() {
-    // Read the station ID from the command-line arguments
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <station_id>", args[0]);
+    if args.len() != 4 {
+        eprintln!("Usage: {} <station_id> <latitude> <longitude>", args[0]);
         std::process::exit(1);
     }
+
     let station_id = args[1].clone();
+    let latitude: f64 = args[2].parse().expect("Invalid latitude");
+    let longitude: f64 = args[3].parse().expect("Invalid longitude");
 
-    // Shared state for safely passing EdgePackets across threads
-    let shared_buffer = Arc::new(Mutex::new(Vec::new()));
+    let shared_data = Arc::new(Mutex::new(Vec::new()));
+    let station_data = Arc::clone(&shared_data);
 
-    // Station Thread
-    let station_data = Arc::clone(&shared_buffer);
-    let station_handle = thread::spawn(move || {
-        if let Err(e) = station_client::run(station_data) {
-            eprintln!("Station client exited with error: {}", e);
-        }
+    std::thread::spawn(move || {
+        station_client::run(station_data).expect("Station client failed");
     });
 
-    // Backend Thread
-    let backend_data = Arc::clone(&shared_buffer);
-    let backend_handle = thread::spawn(move || {
-        // Pass the station_id to the backend client
-        backend_client::run(backend_data, station_id);
-    });
-
-    station_handle.join().expect("Station client thread panicked"); 
-    backend_handle.join().expect("Backend client thread panicked"); 
+    backend_client::run(shared_data, station_id, latitude, longitude);
 }
