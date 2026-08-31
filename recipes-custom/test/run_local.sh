@@ -1,5 +1,9 @@
 #!/bin/bash
 
+#Storing here for future ref.
+#export DATABASE_URL="postgres://creezylus:admin@localhost/iot_metrics"
+#export SERVER_ADDRESS="0.0.0.0:5000"
+
 case "$1" in
     run)
         echo "Starting IoT services..."

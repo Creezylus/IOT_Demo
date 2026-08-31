@@ -1,7 +1,7 @@
-
 #[path = "../../rust_tools/logger/log.rs"]
 mod log;
 
+mod db;
 
 use axum::{
     extract::State,
@@ -12,6 +12,8 @@ use axum::{
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+
+use db::{edges, sensor_readings, sensors, station_locations, stations};
 
 #[derive(Debug, Deserialize)]
 pub struct ApiPayload {
@@ -30,8 +32,8 @@ pub struct EdgePacket {
 
 #[derive(Debug, Deserialize)]
 pub struct SensorReading {
-    pub id: i32,         
-    pub timestamp: i64, 
+    pub id: i32,
+    pub timestamp: i64,
     pub a_x: f32,
     pub a_y: f32,
     pub a_z: f32,
@@ -42,7 +44,7 @@ pub struct SensorReading {
 #[tokio::main]
 async fn main() {
     let database_url = std::env::var("DATABASE_URL")
-    .expect("DATABASE_URL environment variable is not set");
+        .expect("DATABASE_URL environment variable is not set");
 
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -65,97 +67,95 @@ async fn ingest_data(
     State(pool): State<PgPool>,
     Json(payload): Json<ApiPayload>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let station_id = &payload.station_id;
+    let station_id = payload.station_id.as_str();
 
-    let existing = sqlx::query_as::<_, (f64, f64)>(
-        "SELECT latitude, longitude FROM stations WHERE station_id = $1",
-    )
-        .bind(station_id)
-        .fetch_optional(&pool)
-        .await
-        .unwrap_or(None);
+    upsert_station_location(&pool, station_id, payload.latitude, payload.longitude).await?;
 
-    let location_changed = match existing {
-        Some((lat, lon)) => lat != payload.latitude || lon != payload.longitude,
-        None => true,
-    };
-
-    if existing.is_none() {
-        let _ = sqlx::query(
-            "INSERT INTO stations (station_id, name, latitude, longitude, last_seen_at) VALUES ($1, $1, $2, $3, now()) ON CONFLICT (station_id) DO NOTHING",
-        )
-            .bind(station_id)
-            .bind(payload.latitude)
-            .bind(payload.longitude)
-            .execute(&pool)
-            .await;
-    } else {
-        let _ = sqlx::query(
-            "UPDATE stations SET latitude = $2, longitude = $3, last_seen_at = now() WHERE station_id = $1",
-        )
-            .bind(station_id)
-            .bind(payload.latitude)
-            .bind(payload.longitude)
-            .execute(&pool)
-            .await;
-    }
-
-    if location_changed {
-        let _ = sqlx::query(
-            "INSERT INTO station_locations (station_id, latitude, longitude) VALUES ($1, $2, $3)",
-        )
-            .bind(station_id)
-            .bind(payload.latitude)
-            .bind(payload.longitude)
-            .execute(&pool)
-            .await;
-    }
-
-    for packet in payload.data {
-        let _ = sqlx::query("INSERT INTO edges (station_id, edge_id) VALUES ($1, $2) ON CONFLICT (station_id, edge_id) DO NOTHING")
-            .bind(station_id)
-            .bind(packet.edge_id)
-            .execute(&pool)
-            .await;
-
-        for (i, sensor) in packet.sensors.iter().enumerate() {
-            if packet.active_flags.get(i).copied().unwrap_or(0) != 1 {
-                continue;
-            }
-
-            let _ = sqlx::query("INSERT INTO sensors (station_id, edge_id, sensor_id) VALUES ($1, $2, $3) ON CONFLICT (station_id, edge_id, sensor_id) DO NOTHING")
-                .bind(station_id)
-                .bind(packet.edge_id)
-                .bind(sensor.id)
-                .execute(&pool)
-                .await;
-
-            let insert_result = sqlx::query(
-                r#"
-                INSERT INTO sensor_readings
-                (station_id, edge_id, sensor_id, raw_timestamp, reading_time, a_x, a_y, a_z, hum, seis)
-                VALUES ($1, $2, $3, $4, to_timestamp($4 / 1000.0), $5, $6, $7, $8, $9)
-                ON CONFLICT (station_id, edge_id, sensor_id, raw_timestamp) DO NOTHING
-                "#
-            )
-            .bind(station_id)
-            .bind(packet.edge_id)
-            .bind(sensor.id)
-            .bind(sensor.timestamp)
-            .bind(sensor.a_x)
-            .bind(sensor.a_y)
-            .bind(sensor.a_z)
-            .bind(sensor.hum)
-            .bind(sensor.seis)
-            .execute(&pool)
-            .await;
-
-            if let Err(e) = insert_result {
-                iotlogger!("Failed to insert reading: {}", e);
-                return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
-            }
-        }
+    for packet in &payload.data {
+        ingest_edge_packet(&pool, station_id, packet).await?;
     }
 
     Ok(StatusCode::OK)
+}
+
+async fn upsert_station_location(
+    pool: &PgPool,
+    station_id: &str,
+    latitude: f64,
+    longitude: f64,
+) -> Result<(), (StatusCode, String)> {
+    let existing = stations::get_current_location(pool, station_id)
+        .await
+        .map_err(db_err("lookup station"))?;
+
+    let location_changed = match existing {
+        Some((lat, lon)) => lat != latitude || lon != longitude,
+        None => true,
+    };
+
+    match existing {
+        None => {
+            stations::create_station(pool, station_id, latitude, longitude)
+                .await
+                .map_err(db_err("create station"))?;
+        }
+        Some(_) => {
+            stations::update_station_location(pool, station_id, latitude, longitude)
+                .await
+                .map_err(db_err("update station"))?;
+        }
+    }
+
+    if location_changed {
+        station_locations::record_location_change(pool, station_id, latitude, longitude)
+            .await
+            .map_err(db_err("record location change"))?;
+    }
+
+    Ok(())
+}
+
+/// sensor reading in the packet.
+async fn ingest_edge_packet(
+    pool: &PgPool,
+    station_id: &str,
+    packet: &EdgePacket,
+) -> Result<(), (StatusCode, String)> {
+    edges::upsert_edge(pool, station_id, packet.edge_id)
+        .await
+        .map_err(db_err("upsert edge"))?;
+
+    for (i, sensor) in packet.sensors.iter().enumerate() {
+        if packet.active_flags.get(i).copied().unwrap_or(0) != 1 {
+            continue;
+        }
+
+        ingest_sensor_reading(pool, station_id, packet.edge_id, sensor).await?;
+    }
+
+    Ok(())
+}
+
+async fn ingest_sensor_reading(
+    pool: &PgPool,
+    station_id: &str,
+    edge_id: i32,
+    sensor: &SensorReading,
+) -> Result<(), (StatusCode, String)> {
+    sensors::upsert_sensor(pool, station_id, edge_id, sensor.id)
+        .await
+        .map_err(db_err("upsert sensor"))?;
+
+    sensor_readings::insert_reading(pool, station_id, edge_id, sensor)
+        .await
+        .map_err(db_err("insert reading"))?;
+
+    Ok(())
+}
+
+fn db_err(step: &'static str) -> impl Fn(sqlx::Error) -> (StatusCode, String) {
+    move |e| {
+        iotlogger!("DB step '{}' failed: {}", step, e);
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("{step}: {e}"))
+    }
 }
