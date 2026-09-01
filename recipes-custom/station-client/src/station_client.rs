@@ -6,8 +6,8 @@ use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use crate::iotlogger;
 
-//const HOST: &str = "192.168.1.185";
-const HOST: &str = "127.0.0.1";
+const HOST: &str = "192.168.1.185";
+// const HOST: &str = "127.0.0.1";
 const PORT: u16 = 9090;
 const MAX_SENSORS: usize = 5;
 const MAX_EDGE: usize = 3;

@@ -1,7 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
 pub struct StationRow {
     pub station_id: String,
     pub name: Option<String>,
@@ -11,7 +12,7 @@ pub struct StationRow {
     pub last_seen_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
 pub struct StationLocationRow {
     pub id: i64,
     pub station_id: String,
@@ -20,7 +21,7 @@ pub struct StationLocationRow {
     pub effective_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
 pub struct EdgeRow {
     pub station_id: String,
     pub edge_id: i32,
@@ -29,7 +30,7 @@ pub struct EdgeRow {
     pub last_seen_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
 pub struct SensorRow {
     pub station_id: String,
     pub edge_id: i32,
@@ -40,7 +41,7 @@ pub struct SensorRow {
     pub last_seen_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
 pub struct SensorReadingRow {
     pub id: i64,
     pub station_id: String,

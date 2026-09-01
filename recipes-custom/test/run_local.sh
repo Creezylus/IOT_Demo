@@ -3,6 +3,7 @@
 #Storing here for future ref.
 export DATABASE_URL="postgres://creezylus:admin@localhost/iot_metrics"
 export SERVER_ADDRESS="0.0.0.0:5000"
+export API_BASE_URL="http://127.0.0.1:5000"
 
 case "$1" in
     run)
@@ -11,13 +12,13 @@ case "$1" in
         ../backend-server/target/debug/backend-server &
         sleep 2
 
-        ../station-client/target/debug/station_client 2 50.5 10.1 &
+        ../station-client/target/debug/station_client 6 50.5 10.1 &
         sleep 2
 
-        ../edge-client/files/edge_client 1 &
-        sleep 2
+        #../edge-client/files/edge_client 1 &
+        #sleep 2
 
-        ../sensor-client/files/sensor_client 1 &
+        #../sensor-client/files/sensor_client 1 &
 
         echo "All services started."
         ;;

@@ -13,11 +13,13 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use utoipa::{IntoParams, OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 
 use db::models::{EdgeRow, SensorReadingRow, SensorRow, StationLocationRow, StationRow};
 use db::{edges, sensor_readings, sensors, station_locations, stations};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ApiPayload {
     pub station_id: String,
     pub latitude: f64,
@@ -25,14 +27,15 @@ pub struct ApiPayload {
     pub data: Vec<EdgePacket>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct EdgePacket {
     pub edge_id: i32,
+    #[schema(value_type = Vec<i32>)]
     pub active_flags: [i32; 5],
     pub sensors: Vec<SensorReading>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct SensorReading {
     pub id: i32,
     pub timestamp: i64,
@@ -43,7 +46,8 @@ pub struct SensorReading {
     pub seis: f32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 struct ReadingsQuery {
     station_id: String,
     edge_id: Option<i32>,
@@ -52,6 +56,33 @@ struct ReadingsQuery {
     to: Option<DateTime<Utc>>,
     limit: Option<i64>,
 }
+
+/// Aggregated OpenAPI document for the seismic sensor network API.
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        ingest_data,
+        list_stations_handler,
+        list_locations_handler,
+        list_edges_handler,
+        list_sensors_handler,
+        list_readings_handler,
+    ),
+    components(schemas(
+        ApiPayload,
+        EdgePacket,
+        SensorReading,
+        StationRow,
+        StationLocationRow,
+        EdgeRow,
+        SensorRow,
+        SensorReadingRow,
+    )),
+    tags(
+        (name = "seismic-api", description = "Sensor network ingestion & query API")
+    )
+)]
+struct ApiDoc;
 
 #[tokio::main]
 async fn main() {
@@ -71,15 +102,27 @@ async fn main() {
         .route("/api/v1/stations/:station_id/edges", get(list_edges_handler))
         .route("/api/v1/stations/:station_id/edges/:edge_id/sensors", get(list_sensors_handler))
         .route("/api/v1/readings", get(list_readings_handler))
-        .with_state(pool);
+        .with_state(pool)
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     let server_address = std::env::var("SERVER_ADDRESS").expect("SERVER_ADDRESS environment variable is not set");
     let listener = tokio::net::TcpListener::bind(&server_address).await.unwrap();
     iotlogger!("SERVER_ADDRESS: {}", server_address);
+    iotlogger!("Swagger UI available at http://{}/swagger-ui", server_address);
 
     axum::serve(listener, app).await.unwrap();
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/ingest",
+    tag = "seismic-api",
+    request_body = ApiPayload,
+    responses(
+        (status = 200, description = "Data ingested successfully"),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
 async fn ingest_data(
     State(pool): State<PgPool>,
     Json(payload): Json<ApiPayload>,
@@ -169,6 +212,15 @@ async fn ingest_sensor_reading(
     Ok(())
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/stations",
+    tag = "seismic-api",
+    responses(
+        (status = 200, description = "List of all stations", body = Vec<StationRow>),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
 async fn list_stations_handler(
     State(pool): State<PgPool>,
 ) -> Result<Json<Vec<StationRow>>, (StatusCode, String)> {
@@ -178,6 +230,18 @@ async fn list_stations_handler(
         .map_err(db_err("list stations"))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/stations/{station_id}/locations",
+    tag = "seismic-api",
+    params(
+        ("station_id" = String, Path, description = "Station identifier"),
+    ),
+    responses(
+        (status = 200, description = "Location history for a station", body = Vec<StationLocationRow>),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
 async fn list_locations_handler(
     State(pool): State<PgPool>,
     Path(station_id): Path<String>,
@@ -188,6 +252,18 @@ async fn list_locations_handler(
         .map_err(db_err("list locations"))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/stations/{station_id}/edges",
+    tag = "seismic-api",
+    params(
+        ("station_id" = String, Path, description = "Station identifier"),
+    ),
+    responses(
+        (status = 200, description = "Edges belonging to a station", body = Vec<EdgeRow>),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
 async fn list_edges_handler(
     State(pool): State<PgPool>,
     Path(station_id): Path<String>,
@@ -198,6 +274,19 @@ async fn list_edges_handler(
         .map_err(db_err("list edges"))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/stations/{station_id}/edges/{edge_id}/sensors",
+    tag = "seismic-api",
+    params(
+        ("station_id" = String, Path, description = "Station identifier"),
+        ("edge_id" = i32, Path, description = "Edge identifier"),
+    ),
+    responses(
+        (status = 200, description = "Sensors belonging to an edge", body = Vec<SensorRow>),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
 async fn list_sensors_handler(
     State(pool): State<PgPool>,
     Path((station_id, edge_id)): Path<(String, i32)>,
@@ -208,6 +297,16 @@ async fn list_sensors_handler(
         .map_err(db_err("list sensors"))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/readings",
+    tag = "seismic-api",
+    params(ReadingsQuery),
+    responses(
+        (status = 200, description = "Sensor readings matching the filter", body = Vec<SensorReadingRow>),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
 async fn list_readings_handler(
     State(pool): State<PgPool>,
     Query(params): Query<ReadingsQuery>,

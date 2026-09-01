@@ -3,6 +3,7 @@ use std::time::Duration;
 use crate::station_client::EdgePacket;
 use reqwest::Client;
 use serde::Serialize;
+use std::env;
 use crate::iotlogger;
 
 
@@ -52,8 +53,14 @@ async fn send_payload(station_id: &str, latitude: f64, longitude: f64, packets: 
         .timeout(Duration::from_secs(10))
         .build()?;
 
+    let base_url = env::var("API_BASE_URL")
+    .expect("API_BASE_URL environment variable not set");
+
+
+    let url = format!("{}/api/v1/ingest", base_url);
+
     let response = client
-        .post("http://127.0.0.1:5000/api/v1/ingest")
+        .post(&url)
         .json(&payload)
         .send()
         .await?;

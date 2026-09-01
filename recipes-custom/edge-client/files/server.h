@@ -10,8 +10,8 @@
 #define BUFFER_SIZE 1024
 #define MAX_CLIENTS 5
 #define STATION_PORT 9090
-//#define STATION_IP "192.168.1.185" //TODO Make this dynamic
-#define STATION_IP "127.0.0.1" //TODO Make this dynamic
+#define STATION_IP "192.168.1.185" //TODO Make this dynamic
+// #define STATION_IP "127.0.0.1" //TODO Make this dynamic
 
 typedef struct __PACKED__{
     int id;
