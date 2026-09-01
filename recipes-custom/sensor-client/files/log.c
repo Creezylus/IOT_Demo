@@ -1,4 +1,3 @@
-// Define _GNU_SOURCE to access program_invocation_short_name on Linux
 #define _GNU_SOURCE 
 
 #include "log.h"
@@ -13,9 +12,6 @@
 #if defined(__linux__) || defined(__GLIBC__)
     extern char *program_invocation_short_name;
     #define GET_PROG_NAME() program_invocation_short_name
-#elif defined(__APPLE__) || defined(__FreeBSD__)
-    #include <stdlib.h>
-    #define GET_PROG_NAME() getprogname()
 #else
     #define GET_PROG_NAME() "unknown_process"
 #endif
@@ -39,7 +35,6 @@ static void init_logging(void) {
     }
 }
 
-// GCC/Clang attribute to ensure this runs automatically when the program exits
 static void __attribute__((destructor)) cleanup_logging(void) {
     if (log_file && log_file != stderr) {
         fclose(log_file);
