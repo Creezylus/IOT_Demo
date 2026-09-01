@@ -58,12 +58,17 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in station_addr;
     station_addr.sin_family = AF_INET;
     station_addr.sin_port = htons(STATION_PORT);
-    if (inet_pton(AF_INET, STATION_IP, &station_addr.sin_addr) <= 0) {
+    const char *station_ip = getenv("STATION_IP");
+    if (station_ip == NULL || station_ip[0] == '\0') 
+    {
+        station_ip = STATION_IP;
+    }
+    if (inet_pton(AF_INET, station_ip, &station_addr.sin_addr) <= 0) {
         perror("Invalid station address");
         exit(EXIT_FAILURE);
     }
 
-    iotlogger("Connecting to Station at %s:%d...\n", STATION_IP, STATION_PORT);
+    iotlogger("Connecting to Station at %s:%d...\n", station_ip, STATION_PORT);
     if (connect(station_client, (struct sockaddr *)&station_addr, sizeof(station_addr)) < 0) {
         perror("Connection to station failed");
         exit(EXIT_FAILURE); 
