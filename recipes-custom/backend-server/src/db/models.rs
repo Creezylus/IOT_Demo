@@ -56,3 +56,23 @@ pub struct SensorReadingRow {
     pub seis: f32,
     pub received_at: DateTime<Utc>,
 }
+
+/// Computed status for a single sensor reading: accel magnitude, seis,
+/// and hum each checked against thresholds (normal / warning / alert),
+/// plus an overall `status` that is the worst of the three.
+#[derive(Debug, Serialize, sqlx::FromRow, ToSchema)]
+pub struct MetricRow {
+    pub id: i64,
+    pub station_id: String,
+    pub edge_id: i32,
+    pub sensor_id: i32,
+    pub reading_id: i64,
+    pub accel_mag: f32,
+    pub seis: f32,
+    pub hum: f32,
+    pub accel_status: String,
+    pub seis_status: String,
+    pub hum_status: String,
+    pub status: String,
+    pub ts: DateTime<Utc>,
+}

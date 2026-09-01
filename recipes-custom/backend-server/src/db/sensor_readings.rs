@@ -4,18 +4,23 @@ use sqlx::PgPool;
 use super::models::SensorReadingRow;
 use crate::SensorReading;
 
+/// Inserts a reading. Returns `Some((id, reading_time))` if a new row was
+/// written, or `None` if this was a deduped retry (same station/edge/sensor/
+/// raw_timestamp already exists) -- in which case the caller should skip
+/// writing a metrics row too, to avoid duplicates.
 pub async fn insert_reading(
     pool: &PgPool,
     station_id: &str,
     edge_id: i32,
     reading: &SensorReading,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
+) -> Result<Option<(i64, DateTime<Utc>)>, sqlx::Error> {
+    let row = sqlx::query_as::<_, (i64, DateTime<Utc>)>(
         r#"
         INSERT INTO sensor_readings
         (station_id, edge_id, sensor_id, raw_timestamp, reading_time, a_x, a_y, a_z, hum, seis)
         VALUES ($1, $2, $3, $4, to_timestamp($4 / 1000.0), $5, $6, $7, $8, $9)
         ON CONFLICT (station_id, edge_id, sensor_id, raw_timestamp) DO NOTHING
+        RETURNING id, reading_time
         "#,
     )
     .bind(station_id)
@@ -27,10 +32,10 @@ pub async fn insert_reading(
     .bind(reading.a_z)
     .bind(reading.hum)
     .bind(reading.seis)
-    .execute(pool)
+    .fetch_optional(pool)
     .await?;
 
-    Ok(())
+    Ok(row)
 }
 
 pub async fn list_readings(

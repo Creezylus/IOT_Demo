@@ -1,4 +1,4 @@
-#[path = "../../rust_tools/logger/log.rs"]
+#[path = "../../rust_tools/logger/log.rs"] // Cheesyyy fix this laterr..
 mod log;
 
 mod db;
@@ -16,8 +16,10 @@ use sqlx::PgPool;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use db::models::{EdgeRow, SensorReadingRow, SensorRow, StationLocationRow, StationRow};
-use db::{edges, sensor_readings, sensors, station_locations, stations};
+use db::models::{
+    EdgeRow, MetricRow, SensorReadingRow, SensorRow, StationLocationRow, StationRow,
+};
+use db::{edges, metrics, sensor_readings, sensors, station_locations, stations};
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ApiPayload {
@@ -57,6 +59,23 @@ struct ReadingsQuery {
     limit: Option<i64>,
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+struct MetricsQuery {
+    station_id: String,
+    edge_id: Option<i32>,
+    sensor_id: Option<i32>,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+struct StatusQuery {
+    station_id: Option<String>,
+}
+
 /// Aggregated OpenAPI document for the seismic sensor network API.
 #[derive(OpenApi)]
 #[openapi(
@@ -67,6 +86,8 @@ struct ReadingsQuery {
         list_edges_handler,
         list_sensors_handler,
         list_readings_handler,
+        list_metrics_handler,
+        current_status_handler,
     ),
     components(schemas(
         ApiPayload,
@@ -77,6 +98,7 @@ struct ReadingsQuery {
         EdgeRow,
         SensorRow,
         SensorReadingRow,
+        MetricRow,
     )),
     tags(
         (name = "seismic-api", description = "Sensor network ingestion & query API")
@@ -102,6 +124,8 @@ async fn main() {
         .route("/api/v1/stations/:station_id/edges", get(list_edges_handler))
         .route("/api/v1/stations/:station_id/edges/:edge_id/sensors", get(list_sensors_handler))
         .route("/api/v1/readings", get(list_readings_handler))
+        .route("/api/v1/metrics", get(list_metrics_handler))
+        .route("/api/v1/status", get(current_status_handler))
         .with_state(pool)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
@@ -205,9 +229,34 @@ async fn ingest_sensor_reading(
         .await
         .map_err(db_err("upsert sensor"))?;
 
-    sensor_readings::insert_reading(pool, station_id, edge_id, sensor)
+    let inserted = sensor_readings::insert_reading(pool, station_id, edge_id, sensor)
         .await
         .map_err(db_err("insert reading"))?;
+
+    // Only write a metric when a *new* reading was actually inserted --
+    // if this was a deduped retry, `inserted` is None and we skip it so we
+    // don't write a second metrics row for the same reading.
+    if let Some((reading_id, reading_time)) = inserted {
+        let computed = metrics::compute(sensor.a_x, sensor.a_y, sensor.a_z, sensor.seis, sensor.hum);
+
+        metrics::insert_metric(
+            pool,
+            station_id,
+            edge_id,
+            sensor.id,
+            reading_id,
+            computed.accel_mag,
+            sensor.seis,
+            sensor.hum,
+            computed.accel_status,
+            computed.seis_status,
+            computed.hum_status,
+            computed.status,
+            reading_time,
+        )
+        .await
+        .map_err(db_err("insert metric"))?;
+    }
 
     Ok(())
 }
@@ -325,6 +374,56 @@ async fn list_readings_handler(
     .await
     .map(Json)
     .map_err(db_err("list readings"))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics",
+    tag = "seismic-api",
+    params(MetricsQuery),
+    responses(
+        (status = 200, description = "Computed metrics (accel magnitude, seis, hum, statuses) matching the filter", body = Vec<MetricRow>),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+async fn list_metrics_handler(
+    State(pool): State<PgPool>,
+    Query(params): Query<MetricsQuery>,
+) -> Result<Json<Vec<MetricRow>>, (StatusCode, String)> {
+    let limit = params.limit.unwrap_or(1000).min(10000);
+
+    metrics::list_metrics(
+        &pool,
+        &params.station_id,
+        params.edge_id,
+        params.sensor_id,
+        params.from,
+        params.to,
+        limit,
+    )
+    .await
+    .map(Json)
+    .map_err(db_err("list metrics"))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/status",
+    tag = "seismic-api",
+    params(StatusQuery),
+    responses(
+        (status = 200, description = "Latest status per station/edge/sensor -- for a dashboard view", body = Vec<MetricRow>),
+        (status = 500, description = "Internal server error", body = String),
+    )
+)]
+async fn current_status_handler(
+    State(pool): State<PgPool>,
+    Query(params): Query<StatusQuery>,
+) -> Result<Json<Vec<MetricRow>>, (StatusCode, String)> {
+    metrics::list_latest_status(&pool, params.station_id.as_deref())
+        .await
+        .map(Json)
+        .map_err(db_err("current status"))
 }
 
 fn db_err(step: &'static str) -> impl Fn(sqlx::Error) -> (StatusCode, String) {
