@@ -6,7 +6,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use crate::iotlogger;
 
-const HOST: &str = "192.168.1.185";
+//const HOST: &str = "192.168.1.185";
 // const HOST: &str = "127.0.0.1";
 const PORT: u16 = 9090;
 const MAX_SENSORS: usize = 5;
@@ -40,10 +40,11 @@ pub fn run(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn std::
 }
 
 async fn serve(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind(format!("{}:{}", HOST, PORT)).await?;
+    let host = std::env::var("STATION_IP").expect("STATION_IP environment variable not set");
+    let listener = TcpListener::bind(format!("{}:{}", &host, PORT)).await?;
     let packet_size = mem::size_of::<EdgePacket>();
 
-    iotlogger!("Station Server listening on {}:{}...", HOST, PORT);
+    iotlogger!("Station Server listening on {}:{}...", &host, PORT);
     debug_assert_eq!(packet_size, 184, "EdgePacket size mismatch with C sender");
 
     let semaphore = Arc::new(Semaphore::new(MAX_EDGE));
@@ -72,7 +73,8 @@ async fn serve(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn s
                             std::ptr::read_unaligned(read_buf.as_ptr() as *const EdgePacket)
                         };
 
-                        // OVERWRITE TIMESTAMP WITH CURRENT LAPTOP TIME
+                        // OVERWRITE TIMESTAMP WITH CURRENT LAPTOP TIME (Something looks wrong with
+                        // dev boards Ts -- Check RTC???)
                         let current_ts = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
@@ -80,8 +82,6 @@ async fn serve(shared_data: Arc<Mutex<Vec<EdgePacket>>>) -> Result<(), Box<dyn s
 
                         for i in 0..MAX_SENSORS {
                             if packet.active_flags[i] == 1 {
-                                // Extract the sensor, modify its ts, and safely put it back
-                                // to avoid unaligned reference warnings on packed structs
                                 let mut s = packet.sensors[i];
                                 s.timestamp = current_ts;
                                 packet.sensors[i] = s;
