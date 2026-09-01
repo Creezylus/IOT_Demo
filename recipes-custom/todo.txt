@@ -2,3 +2,8 @@
 2 -- Expose Apis for getting data (check)
 3 -- Move things to env (check)
 4 -- add logging (check)
+5 -- reduce latency in ingest path (too much synchronous work per req as of now)
+6 -- add station id, time start and time end params to get status /status
+7 -- work on scaling dbs.
+8 -- work on scaling edge-clients and sensor-clients.
+
