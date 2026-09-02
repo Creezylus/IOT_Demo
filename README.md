@@ -17,6 +17,25 @@ This directory contains custom Yocto recipes and source modules for the system b
 
 ---
 
+## Visualization Demo
+
+### 1. Filter
+
+![Filter](readme_resources/1_filter.png)
+
+### 2. Map
+
+![Map](readme_resources/2_map.png)
+
+### 3. Insights
+
+![Insights](readme_resources/3_insights.png)
+
+### 4. Metrics
+
+![Metrics](readme_resources/4_metrics.png)
+
+
 > **Note:** Each directory contains its own `README.md` with deep-dive technical documentation, environment setup, and compilation details. Please inspect the target module's directory prior to building.
 
 > **Note:** Only sensor-client and edge-client have Yocto recipes since they are intended to be run on target boards. Non Yocto repositories should be moved elsewhere --todo later.
