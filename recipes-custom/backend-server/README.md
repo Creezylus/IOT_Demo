@@ -100,8 +100,11 @@ Thresholds are defined as constants in `db/metrics.rs` and should be tuned to
 your actual sensor calibration and site requirements before relying on them.
 
 ## TODOS 
-1 -- reduce latency in ingest path (too much synchronous work per req as of now) (check)
-2 -- add station id, time start and time end params to get status /status 
-3 -- work on scaling dbs.
-4 -- work on scaling edge-clients and sensor-clients.
+- [x] Reduce latency in ingest path
+- [ ] Add station ID, start time and end time params to `/status`
+- [ ] Work on scaling DBs (Distributed dbs and Replicas for read)
+- [ ] Add Scaling of Webservers 
+- [ ] Add Scaling of LoadBalancer
+- [ ] Add Authentication 
+- [ ] Work on scaling edge-clients and sensor-clients
 

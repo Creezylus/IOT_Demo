@@ -19,4 +19,4 @@ This directory contains custom Yocto recipes and source modules for the system b
 
 > **Note:** Each directory contains its own `README.md` with deep-dive technical documentation, environment setup, and compilation details. Please inspect the target module's directory prior to building.
 
-> **Note:** Only sensor-client and edge-client have Yocto recipes since they are intended to be run on target boards.
+> **Note:** Only sensor-client and edge-client have Yocto recipes since they are intended to be run on target boards. Non Yocto repositories should be moved elsewhere --todo later.
