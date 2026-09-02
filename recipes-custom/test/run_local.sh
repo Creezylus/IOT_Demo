@@ -16,6 +16,7 @@ export PRIMARY_DB_PATH="public"
 export LOCAL_DB_URL="postgres://creezylus:admin@localhost:5432/iot_metrics_station_1"
 export PRIMARY_DATABASE_URL="postgres://creezylus:admin@localhost:5432/iot_metrics_primary"
 export DATABASE_URL="postgres://creezylus:admin@localhost:5432/iot_metrics_station_1"
+export SYNC_SERVER_URL="http://127.0.0.1:8088/sync"
 
 
 case "$1" in
@@ -32,8 +33,11 @@ case "$1" in
         ../sensor-client/files/sensor_client 2 &
 	    sleep 1
         ../sensor-client/files/sensor_client 3 &
-        sleep 1
-        ../sync_worker/target/debug/sync-worker &
+        sleep 1 
+        ../primary_server/target/debug/primary_server &
+        sleep 2
+        ../sync_worker/target/debug/sync_worker &
+
 
 
         echo "All services started."
@@ -45,6 +49,9 @@ case "$1" in
         killall station_client 2>/dev/null
         killall edge_client 2>/dev/null
         killall sensor_client 2>/dev/null
+        killall sync_worker 2>/dev/null
+        killall primary_server 2>/dev/null
+        
         echo "All services stopped."
         ;;
 
