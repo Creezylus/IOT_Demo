@@ -107,4 +107,5 @@ your actual sensor calibration and site requirements before relying on them.
 - [ ] Add Scaling of LoadBalancer
 - [ ] Add Authentication 
 - [ ] Work on scaling edge-clients and sensor-clients
+- [ ] Make Threshold setting more dynamic.
 
