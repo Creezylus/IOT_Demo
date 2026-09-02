@@ -99,6 +99,13 @@ reading's overall `status` is the worst of the three.
 Thresholds are defined as constants in `db/metrics.rs` and should be tuned to
 your actual sensor calibration and site requirements before relying on them.
 
-## Known limitations
-
+## TODOS 
+- [x] Reduce latency in ingest path
+- [ ] Add station ID, start time and end time params to `/status`
+- [ ] Work on scaling DBs (Distributed dbs and Replicas for read)
+- [ ] Add Scaling of Webservers 
+- [ ] Add Scaling of LoadBalancer
+- [ ] Add Authentication 
+- [ ] Work on scaling edge-clients and sensor-clients
+- [ ] Make Threshold setting more dynamic.
 
