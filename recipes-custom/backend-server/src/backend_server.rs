@@ -299,8 +299,7 @@ async fn ingest_data(
     }
 
     if !edge_ids.is_empty() {
-        // ONE CTE handles deduplication conflicts[cite: 4], generation of auto-incremented reading IDs, 
-        // and nested metrics status links[cite: 2].
+   
         let query = r#"
             WITH new_readings AS (
                 SELECT * FROM UNNEST(

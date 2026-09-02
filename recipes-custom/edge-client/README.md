@@ -13,11 +13,11 @@ This repository contains the Edge Client implementation designed to aggregate se
 
 ## Local Build & Usage
 
-### Building Locally
-To compile the binary locally using the standard Makefile:
+    ### Building Locally
+    To compile the binary locally using the standard Makefile:
 
-```bash
-make
-
+    ```bash
+    make 
+    ```
 ###  YOCTO Integration
-IMAGE_INSTALL:append = " edge-client"
+    IMAGE_INSTALL:append = " edge-client"
