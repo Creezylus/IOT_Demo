@@ -40,6 +40,7 @@ This directory contains custom Yocto recipes and source modules for the system b
   - [x]  Create Data Structure
   - [x]  Establish IPC and Test IPC
   - [x]  Simulate Sensor Data add filtering (Band pass and Averaging)
+  - [ ]  Use SPI/I2C to get data (Need sensors to be delivered)
   - [x]  Create BB layers and ensure yocto builds
   - [x]  Create local builds for convenience
   - [ ]  Add CRC
