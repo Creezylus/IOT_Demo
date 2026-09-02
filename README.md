@@ -13,7 +13,7 @@ This directory contains custom Yocto recipes and source modules for the system b
 * **`sensor-client`**: Driver or client implementation dedicated to interfacing directly with localized physical sensor hardware.
 * **`station-client`**: Station-level service that runs a TCP server to accept incoming connections from edge nodes, process payloads, and manage shared buffers.
 * **`test`**: Automated test suites, integration tests, and debugging scripts used to validate component functionality across the workspace.
-* **`todo.txt`**: Task tracking and upcoming feature backlog for layer maintainers.
+
 
 ---
 
@@ -34,6 +34,48 @@ This directory contains custom Yocto recipes and source modules for the system b
 ### 4. Metrics
 
 ![Metrics](readme_resources/4_metrics.png)
+
+### 5. Tasks
+- Create Sensor Client and Edge Client
+  - [x]  Create Data Structure
+  - [x]  Establish IPC and Test IPC
+  - [x]  Simulate Sensor Data add filtering (Band pass and Averaging)
+  - [x]  Create BB layers and ensure yocto builds
+  - [x]  Create local builds for convenience
+  - [ ]  Add CRC
+  - [ ] Work on scaling edge-clients count and sensor-clients
+
+- Create Station Client
+  - [x] Establish Connection with Edge Client for Data Transfer
+  - [x] Load Sensor Client and Edge client on dev board and ensure succesful IPC.
+  - [x] Add Multithreading and synchorization.
+  - [x] Create connection to ingest data using api with backend server
+  - [ ] Add station ID, start time and end time params to `/status`
+  - [ ] Make Threshold setting more dynamic for alerts.
+
+- Create backend server for local db
+  - [x] Expose API get post etc
+  - [x] Reduce latency in ingest path use UNNEST and cache data
+
+- Work on scaling DBs (Distributed dbs Architecture)
+  - [x]  Create Distribued DB (local db and primary db)
+  - [x]  Create Sync script for testing
+  - [x]  Sync Dbs via HTTP
+  - [ ]  Create DB Replicas for Reading and Visualization
+
+- Scaling of Webservers 
+  - [ ] Add LoadBalancer
+  - [ ] Add Kubernetes
+  - [ ] Add Authentication 
+
+- Visualization
+ - [x] Hook Up Grafanna to visualize with Database
+ - [ ] Hook Up Grafanna to visualize with Apis
+ - [ ] Create Custom front-end app or webapp for visualization
+
+### 6. Local build testing
+  - Setup DB
+  - Check run_local.sh
 
 
 > **Note:** Each directory contains its own `README.md` with deep-dive technical documentation, environment setup, and compilation details. Please inspect the target module's directory prior to building.

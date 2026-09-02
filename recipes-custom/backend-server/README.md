@@ -49,17 +49,4 @@ cargo run
 Swagger UI: `http://<SERVER_ADDRESS>/swagger-ui`
 
 
-## TODOS 
-- [x] Reduce latency in ingest path use UNNEST and cache data
-- [x] Work on scaling DBs (Distributed dbs)
-  - [x]  Create Distribued DB
-  - [x]  Create Sync script
-  - [x]  Sync Dbs via HTTP
-- [ ] Add Scaling of Webservers 
-  - [ ] Add LoadBalancer
-  - [ ] Add Kubernetes
-- [ ] Create Replicas for Reading and Visualization
-- [ ] Add Authentication 
-- [ ] Work on scaling edge-clients and sensor-clients
-- [ ] Make Threshold setting more dynamic.
-- [ ] Add station ID, start time and end time params to `/status`
+
