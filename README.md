@@ -66,8 +66,8 @@ This directory contains custom Yocto recipes and source modules for the system b
 
 - Scaling of Webservers 
   - [ ] Add LoadBalancer
-  - [ ] Add Kubernetes
-  - [ ] Add Authentication 
+  - [ ] Add Kubernetes and ensure write to primary db are succesfull and synced properly
+  - [ ] Add Authentication and Encryption
 
 - Visualization
  - [x] Hook Up Grafanna to visualize with Database
