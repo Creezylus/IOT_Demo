@@ -1,4 +1,4 @@
-# Yocto Meta-Layer Directory Structure (`meta-nanometrics/recipes-custom`)
+# Directory Structure (`meta-nanometrics/recipes-custom`)
 
 This directory contains custom Yocto recipes and source modules for the system build[cite: 1, 2, 3]. For detailed build instructions, configuration options, and module-specific setups, refer to the individual `README.md` files located inside each subfolder.
 
