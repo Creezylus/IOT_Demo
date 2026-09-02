@@ -48,67 +48,18 @@ cargo run
 
 Swagger UI: `http://<SERVER_ADDRESS>/swagger-ui`
 
-## API
-
-| Method | Path                                              | Description                                   |
-|--------|----------------------------------------------------|------------------------------------------------|
-| POST   | `/api/v1/ingest`                                   | Ingest a station's location + edge/sensor packets. |
-| GET    | `/api/v1/stations`                                 | List all stations.                              |
-| GET    | `/api/v1/stations/:station_id/locations`           | Location history for a station.                 |
-| GET    | `/api/v1/stations/:station_id/edges`               | Edges for a station.                            |
-| GET    | `/api/v1/stations/:station_id/edges/:edge_id/sensors` | Sensors for an edge.                         |
-| GET    | `/api/v1/readings?station_id=...`                  | Raw sensor readings (filter by edge/sensor/time range). |
-| GET    | `/api/v1/metrics?station_id=...`                   | Computed metrics history (same filters as `/readings`). |
-| GET    | `/api/v1/status[?station_id=...]`                  | Latest status per sensor — for a dashboard. Omit `station_id` for the whole fleet. |
-
-### Ingest payload
-
-```json
-{
-  "station_id": "stn-042",
-  "latitude": 60.7212,
-  "longitude": -135.0568,
-  "data": [
-    {
-      "edge_id": 0,
-      "active_flags": [1, 1, 0, 0, 0],
-      "sensors": [
-        { "id": 0, "timestamp": 1735689600000, "a_x": 0.1, "a_y": 0.2, "a_z": 9.8, "hum": 45.0, "seis": 0.3 },
-        { "id": 1, "timestamp": 1735689600000, "a_x": 0.0, "a_y": 0.1, "a_z": 9.7, "hum": 44.5, "seis": 0.2 }
-      ]
-    }
-  ]
-}
-```
-
-`active_flags[i]` gates whether `sensors[i]` is actually processed — only
-flagged sensors get upserted, inserted, and scored. `timestamp` is
-milliseconds since epoch, assigned by the station server at packet-receipt
-time (not the edge device's own clock).
-
-## Status thresholds
-
-Each reading is scored on three metrics, each independently classified as
-`normal`, `warning`, or `alert` against a warning/alert threshold pair. The
-reading's overall `status` is the worst of the three.
-
-- **accel** — magnitude of the three axes: `sqrt(a_x² + a_y² + a_z²)`
-- **seis** — seismic value, as reported
-- **hum** — humidity, as reported
-
-Thresholds are defined as constants in `db/metrics.rs` and should be tuned to
-your actual sensor calibration and site requirements before relying on them.
 
 ## TODOS 
-- [x] Reduce latency in ingest path
-- [ ] Add station ID, start time and end time params to `/status`
-- [ ] Work on scaling DBs (Distributed dbs and Replicas for read)
+- [x] Reduce latency in ingest path use UNNEST and cache data
+- [x] Work on scaling DBs (Distributed dbs)
 \t- [x]  Create Distribued DB
 \t- [x]  Create Sync script
-\t- [ ]  Sync Dbs via HTTP
+\t- [x]  Sync Dbs via HTTP
 - [ ] Add Scaling of Webservers 
-- [ ] Add Scaling of LoadBalancer
+\t- [ ] Add LoadBalancer
+\t- [ ] Add Kubernetes
+- [ ] Create Replicas for Reading and Visualization
 - [ ] Add Authentication 
 - [ ] Work on scaling edge-clients and sensor-clients
 - [ ] Make Threshold setting more dynamic.
-
+- [ ] Add station ID, start time and end time params to `/status`

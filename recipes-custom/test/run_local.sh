@@ -19,7 +19,48 @@ export DATABASE_URL="postgres://creezylus:admin@localhost:5432/iot_metrics_stati
 export SYNC_SERVER_URL="http://127.0.0.1:8088/sync"
 
 
+
 case "$1" in
+
+    build)
+        echo "Building IoT services..."
+
+        #Sensor client - C
+        pushd ../sensor-client/files > /dev/null
+        make clean
+        make
+        popd > /dev/null
+
+        #Edge client - C
+        pushd ../edge-client/files > /dev/null
+        make clean
+        make
+        popd > /dev/null
+
+        #Rust services
+        pushd ../backend-server > /dev/null
+        cargo clean
+        cargo build
+        popd > /dev/null
+
+        pushd ../station-client > /dev/null
+        cargo clean
+        cargo build
+        popd > /dev/null
+
+        pushd ../primary_server > /dev/null
+        cargo clean
+        cargo build
+        popd > /dev/null
+
+        pushd ../sync_worker > /dev/null
+        cargo clean
+        cargo build
+        popd > /dev/null
+
+        echo "All services built."
+        ;;
+
     start)
         echo "Starting IoT services..."
         ../backend-server/target/debug/backend-server &
@@ -29,14 +70,16 @@ case "$1" in
         ../edge-client/files/edge_client 1 &
         sleep 2
         ../sensor-client/files/sensor_client 1 &
-	    sleep 1
+            sleep 1
         ../sensor-client/files/sensor_client 2 &
-	    sleep 1
+            sleep 1
         ../sensor-client/files/sensor_client 3 &
         sleep 1 
         ../primary_server/target/debug/primary_server &
         sleep 2
         ../sync_worker/target/debug/sync_worker &
+
+
 
 
 
@@ -56,7 +99,7 @@ case "$1" in
         ;;
 
     *)
-        echo "Usage: $0 {start|stop}"
+        echo "Usage: $0 {build|start|stop}"
         exit 1
         ;;
 esac
