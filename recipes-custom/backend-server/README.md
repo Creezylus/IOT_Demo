@@ -56,7 +56,7 @@ Swagger UI: `http://<SERVER_ADDRESS>/swagger-ui`
   - [x]  Create Sync script
   - [x]  Sync Dbs via HTTP
 - [ ] Add Scaling of Webservers 
-- [ ] Add LoadBalancer
+  - [ ] Add LoadBalancer
   - [ ] Add Kubernetes
 - [ ] Create Replicas for Reading and Visualization
 - [ ] Add Authentication 
