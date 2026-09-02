@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #Storing here for future ref and convenience.
-export DATABASE_URL="postgres://creezylus:admin@localhost/iot_metrics"
+export DATABASE_URL="postgres://creezylus:admin@localhost/iot_metrics" #VERY VAD PRACTISE BUT KEEPING THIS FOR READER's UNDERSTANDING
 export SERVER_ADDRESS="0.0.0.0:5000"
 export API_BASE_URL="http://127.0.0.1:5000"
 export STATION_IP_OLD="172.29.77.201"
