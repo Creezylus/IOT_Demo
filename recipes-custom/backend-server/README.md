@@ -100,5 +100,8 @@ Thresholds are defined as constants in `db/metrics.rs` and should be tuned to
 your actual sensor calibration and site requirements before relying on them.
 
 ## Known limitations
-
+1 -- reduce latency in ingest path (too much synchronous work per req as of now)
+2 -- add station id, time start and time end params to get status /status
+3 -- work on scaling dbs.
+4 -- work on scaling edge-clients and sensor-clients.
 

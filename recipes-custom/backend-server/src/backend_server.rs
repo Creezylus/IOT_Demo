@@ -13,6 +13,8 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
 use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -106,6 +108,14 @@ struct StatusQuery {
 )]
 struct ApiDoc;
 
+// Cached application state to minimize repetitive existence upserts
+struct AppState {
+    pool: PgPool,
+    station_locations: RwLock<HashMap<String, (f64, f64)>>,
+    seen_edges: RwLock<HashSet<(String, i32)>>,
+    seen_sensors: RwLock<HashSet<(String, i32, i32)>>,
+}
+
 #[tokio::main]
 async fn main() {
     let database_url = std::env::var("DATABASE_URL")
@@ -117,6 +127,13 @@ async fn main() {
         .await
         .expect("Failed to connect to PostgreSQL");
 
+    let state = Arc::new(AppState {
+        pool,
+        station_locations: RwLock::new(HashMap::new()),
+        seen_edges: RwLock::new(HashSet::new()),
+        seen_sensors: RwLock::new(HashSet::new()),
+    });
+
     let app = Router::new()
         .route("/api/v1/ingest", post(ingest_data))
         .route("/api/v1/stations", get(list_stations_handler))
@@ -126,7 +143,7 @@ async fn main() {
         .route("/api/v1/readings", get(list_readings_handler))
         .route("/api/v1/metrics", get(list_metrics_handler))
         .route("/api/v1/status", get(current_status_handler))
-        .with_state(pool)
+        .with_state(state)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
     let server_address = std::env::var("SERVER_ADDRESS").expect("SERVER_ADDRESS environment variable is not set");
@@ -148,117 +165,197 @@ async fn main() {
     )
 )]
 async fn ingest_data(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<AppState>>,
     Json(payload): Json<ApiPayload>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let station_id = payload.station_id.as_str();
 
-    upsert_station_location(&pool, station_id, payload.latitude, payload.longitude).await?;
-
-    for packet in &payload.data {
-        ingest_edge_packet(&pool, station_id, packet).await?;
+    // 1. Station location caching
+    let mut location_changed = false;
+    let mut needs_station_upsert = false;
+    {
+        let mut locs = state.station_locations.write().unwrap();
+        match locs.get(station_id) {
+            Some(&(lat, lon)) if lat == payload.latitude && lon == payload.longitude => {}
+            Some(_) => {
+                locs.insert(station_id.to_string(), (payload.latitude, payload.longitude));
+                location_changed = true;
+            }
+            None => {
+                locs.insert(station_id.to_string(), (payload.latitude, payload.longitude));
+                needs_station_upsert = true;
+                location_changed = true;
+            }
+        }
     }
 
-    Ok(StatusCode::OK)
-}
+    if needs_station_upsert {
+        let existing = stations::get_current_location(&state.pool, station_id)
+            .await.map_err(db_err("lookup station"))?;
 
-async fn upsert_station_location(
-    pool: &PgPool,
-    station_id: &str,
-    latitude: f64,
-    longitude: f64,
-) -> Result<(), (StatusCode, String)> {
-    let existing = stations::get_current_location(pool, station_id)
-        .await
-        .map_err(db_err("lookup station"))?;
-
-    let location_changed = match existing {
-        Some((lat, lon)) => lat != latitude || lon != longitude,
-        None => true,
-    };
-
-    match existing {
-        None => {
-            stations::create_station(pool, station_id, latitude, longitude)
-                .await
-                .map_err(db_err("create station"))?;
+        if existing.is_none() {
+            stations::create_station(&state.pool, station_id, payload.latitude, payload.longitude)
+                .await.map_err(db_err("create station"))?;
+        } else {
+            stations::update_station_location(&state.pool, station_id, payload.latitude, payload.longitude)
+                .await.map_err(db_err("update station"))?;
         }
-        Some(_) => {
-            stations::update_station_location(pool, station_id, latitude, longitude)
-                .await
-                .map_err(db_err("update station"))?;
-        }
+    } else if location_changed {
+        stations::update_station_location(&state.pool, station_id, payload.latitude, payload.longitude)
+            .await.map_err(db_err("update station"))?;
     }
 
     if location_changed {
-        station_locations::record_location_change(pool, station_id, latitude, longitude)
-            .await
-            .map_err(db_err("record location change"))?;
+        station_locations::record_location_change(&state.pool, station_id, payload.latitude, payload.longitude)
+            .await.map_err(db_err("record location change"))?;
     }
 
-    Ok(())
-}
+    // 2. Edge/Sensor hierarchy caching
+    let mut missing_edges = Vec::new();
+    let mut missing_sensors = Vec::new();
 
-async fn ingest_edge_packet(
-    pool: &PgPool,
-    station_id: &str,
-    packet: &EdgePacket,
-) -> Result<(), (StatusCode, String)> {
-    edges::upsert_edge(pool, station_id, packet.edge_id)
-        .await
-        .map_err(db_err("upsert edge"))?;
-
-    for (i, sensor) in packet.sensors.iter().enumerate() {
-        if packet.active_flags.get(i).copied().unwrap_or(0) != 1 {
-            continue;
+    for packet in &payload.data {
+        let edge_key = (station_id.to_string(), packet.edge_id);
+        {
+            if !state.seen_edges.read().unwrap().contains(&edge_key) {
+                missing_edges.push(packet.edge_id);
+            }
         }
-
-        ingest_sensor_reading(pool, station_id, packet.edge_id, sensor).await?;
+        for (i, sensor) in packet.sensors.iter().enumerate() {
+            if packet.active_flags.get(i).copied().unwrap_or(0) != 1 { continue; }
+            let sensor_key = (station_id.to_string(), packet.edge_id, sensor.id);
+            if !state.seen_sensors.read().unwrap().contains(&sensor_key) {
+                missing_sensors.push((packet.edge_id, sensor.id));
+            }
+        }
     }
 
-    Ok(())
-}
-
-async fn ingest_sensor_reading(
-    pool: &PgPool,
-    station_id: &str,
-    edge_id: i32,
-    sensor: &SensorReading,
-) -> Result<(), (StatusCode, String)> {
-    sensors::upsert_sensor(pool, station_id, edge_id, sensor.id)
-        .await
-        .map_err(db_err("upsert sensor"))?;
-
-    let inserted = sensor_readings::insert_reading(pool, station_id, edge_id, sensor)
-        .await
-        .map_err(db_err("insert reading"))?;
-
-    // Only write a metric when a *new* reading was actually inserted --
-    // if this was a deduped retry, `inserted` is None and we skip it so we
-    // don't write a second metrics row for the same reading.
-    if let Some((reading_id, reading_time)) = inserted {
-        let computed = metrics::compute(sensor.a_x, sensor.a_y, sensor.a_z, sensor.seis, sensor.hum);
-
-        metrics::insert_metric(
-            pool,
-            station_id,
-            edge_id,
-            sensor.id,
-            reading_id,
-            computed.accel_mag,
-            sensor.seis,
-            sensor.hum,
-            computed.accel_status,
-            computed.seis_status,
-            computed.hum_status,
-            computed.status,
-            reading_time,
-        )
-        .await
-        .map_err(db_err("insert metric"))?;
+    if !missing_edges.is_empty() {
+        for edge_id in &missing_edges {
+            edges::upsert_edge(&state.pool, station_id, *edge_id).await.map_err(db_err("upsert edge"))?;
+        }
+        let mut edges_write = state.seen_edges.write().unwrap();
+        for edge_id in missing_edges {
+            edges_write.insert((station_id.to_string(), edge_id));
+        }
     }
 
-    Ok(())
+    if !missing_sensors.is_empty() {
+        for (edge_id, sensor_id) in &missing_sensors {
+            sensors::upsert_sensor(&state.pool, station_id, *edge_id, *sensor_id).await.map_err(db_err("upsert sensor"))?;
+        }
+        let mut sensors_write = state.seen_sensors.write().unwrap();
+        for (edge_id, sensor_id) in missing_sensors {
+            sensors_write.insert((station_id.to_string(), edge_id, sensor_id));
+        }
+    }
+
+    // 3. Bulk Insert & Computed Metrics Mapping
+    let mut tx = state.pool.begin().await.map_err(db_err("begin transaction"))?;
+
+    let cap = payload.data.len() * 5;
+    let mut edge_ids = Vec::with_capacity(cap);
+    let mut sensor_ids = Vec::with_capacity(cap);
+    let mut raw_tss = Vec::with_capacity(cap);
+    let mut axs = Vec::with_capacity(cap);
+    let mut ays = Vec::with_capacity(cap);
+    let mut azs = Vec::with_capacity(cap);
+    let mut hums = Vec::with_capacity(cap);
+    let mut seises = Vec::with_capacity(cap);
+    let mut accel_mags = Vec::with_capacity(cap);
+    let mut accel_statuses = Vec::with_capacity(cap);
+    let mut seis_statuses = Vec::with_capacity(cap);
+    let mut hum_statuses = Vec::with_capacity(cap);
+    let mut statuses = Vec::with_capacity(cap);
+
+    let mut deduplicator = HashSet::new();
+
+    for packet in &payload.data {
+        for (i, sensor) in packet.sensors.iter().enumerate() {
+            if packet.active_flags.get(i).copied().unwrap_or(0) != 1 { continue; }
+            
+            // Defend against duplicates within the immediate payload
+            if !deduplicator.insert((packet.edge_id, sensor.id, sensor.timestamp)) {
+                continue;
+            }
+
+            edge_ids.push(packet.edge_id);
+            sensor_ids.push(sensor.id);
+            raw_tss.push(sensor.timestamp);
+            axs.push(sensor.a_x);
+            ays.push(sensor.a_y);
+            azs.push(sensor.a_z);
+            hums.push(sensor.hum);
+            seises.push(sensor.seis);
+
+            // Calculate metric logic in Rust before inserting
+            let computed = db::metrics::compute(sensor.a_x, sensor.a_y, sensor.a_z, sensor.seis, sensor.hum);
+            accel_mags.push(computed.accel_mag);
+            accel_statuses.push(computed.accel_status);
+            seis_statuses.push(computed.seis_status);
+            hum_statuses.push(computed.hum_status);
+            statuses.push(computed.status);
+        }
+    }
+
+    if !edge_ids.is_empty() {
+        // ONE CTE handles deduplication conflicts[cite: 4], generation of auto-incremented reading IDs, 
+        // and nested metrics status links[cite: 2].
+        let query = r#"
+            WITH new_readings AS (
+                SELECT * FROM UNNEST(
+                    $1::int[], $2::int[], $3::bigint[],
+                    $4::real[], $5::real[], $6::real[], $7::real[], $8::real[],
+                    $9::real[], $10::text[], $11::text[], $12::text[], $13::text[]
+                ) AS t(edge_id, sensor_id, raw_ts, ax, ay, az, hum, seis, accel_mag, accel_status, seis_status, hum_status, status)
+            ),
+            inserted_readings AS (
+                INSERT INTO sensor_readings (
+                    station_id, edge_id, sensor_id, raw_timestamp, reading_time, a_x, a_y, a_z, hum, seis
+                )
+                SELECT
+                    $14, edge_id, sensor_id, raw_ts, to_timestamp(raw_ts / 1000.0), ax, ay, az, hum, seis
+                FROM new_readings
+                ON CONFLICT (station_id, edge_id, sensor_id, raw_timestamp) DO NOTHING
+                RETURNING id, edge_id, sensor_id, raw_timestamp, reading_time
+            )
+            INSERT INTO metrics (
+                station_id, edge_id, sensor_id, reading_id, accel_mag, seis, hum,
+                accel_status, seis_status, hum_status, status, ts
+            )
+            SELECT
+                $14, ir.edge_id, ir.sensor_id, ir.id, nr.accel_mag, nr.seis, nr.hum,
+                nr.accel_status, nr.seis_status, nr.hum_status, nr.status, ir.reading_time
+            FROM inserted_readings ir
+            JOIN new_readings nr
+              ON ir.edge_id = nr.edge_id
+             AND ir.sensor_id = nr.sensor_id
+             AND ir.raw_timestamp = nr.raw_ts
+        "#;
+
+        sqlx::query(query)
+            .bind(&edge_ids)
+            .bind(&sensor_ids)
+            .bind(&raw_tss)
+            .bind(&axs)
+            .bind(&ays)
+            .bind(&azs)
+            .bind(&hums)
+            .bind(&seises)
+            .bind(&accel_mags)
+            .bind(&accel_statuses)
+            .bind(&seis_statuses)
+            .bind(&hum_statuses)
+            .bind(&statuses)
+            .bind(station_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err("bulk insert readings and metrics"))?;
+    }
+
+    tx.commit().await.map_err(db_err("commit transaction"))?;
+
+    Ok(StatusCode::OK)
 }
 
 #[utoipa::path(
@@ -271,9 +368,9 @@ async fn ingest_sensor_reading(
     )
 )]
 async fn list_stations_handler(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<StationRow>>, (StatusCode, String)> {
-    stations::list_stations(&pool)
+    stations::list_stations(&state.pool)
         .await
         .map(Json)
         .map_err(db_err("list stations"))
@@ -292,10 +389,10 @@ async fn list_stations_handler(
     )
 )]
 async fn list_locations_handler(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<AppState>>,
     Path(station_id): Path<String>,
 ) -> Result<Json<Vec<StationLocationRow>>, (StatusCode, String)> {
-    station_locations::list_locations(&pool, &station_id, 500)
+    station_locations::list_locations(&state.pool, &station_id, 500)
         .await
         .map(Json)
         .map_err(db_err("list locations"))
@@ -314,10 +411,10 @@ async fn list_locations_handler(
     )
 )]
 async fn list_edges_handler(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<AppState>>,
     Path(station_id): Path<String>,
 ) -> Result<Json<Vec<EdgeRow>>, (StatusCode, String)> {
-    edges::list_edges(&pool, &station_id)
+    edges::list_edges(&state.pool, &station_id)
         .await
         .map(Json)
         .map_err(db_err("list edges"))
@@ -337,10 +434,10 @@ async fn list_edges_handler(
     )
 )]
 async fn list_sensors_handler(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<AppState>>,
     Path((station_id, edge_id)): Path<(String, i32)>,
 ) -> Result<Json<Vec<SensorRow>>, (StatusCode, String)> {
-    sensors::list_sensors(&pool, &station_id, edge_id)
+    sensors::list_sensors(&state.pool, &station_id, edge_id)
         .await
         .map(Json)
         .map_err(db_err("list sensors"))
@@ -357,13 +454,13 @@ async fn list_sensors_handler(
     )
 )]
 async fn list_readings_handler(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<ReadingsQuery>,
 ) -> Result<Json<Vec<SensorReadingRow>>, (StatusCode, String)> {
     let limit = params.limit.unwrap_or(1000).min(10000);
 
     sensor_readings::list_readings(
-        &pool,
+        &state.pool,
         &params.station_id,
         params.edge_id,
         params.sensor_id,
@@ -387,13 +484,13 @@ async fn list_readings_handler(
     )
 )]
 async fn list_metrics_handler(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<MetricsQuery>,
 ) -> Result<Json<Vec<MetricRow>>, (StatusCode, String)> {
     let limit = params.limit.unwrap_or(1000).min(10000);
 
     metrics::list_metrics(
-        &pool,
+        &state.pool,
         &params.station_id,
         params.edge_id,
         params.sensor_id,
@@ -417,10 +514,10 @@ async fn list_metrics_handler(
     )
 )]
 async fn current_status_handler(
-    State(pool): State<PgPool>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<StatusQuery>,
 ) -> Result<Json<Vec<MetricRow>>, (StatusCode, String)> {
-    metrics::list_latest_status(&pool, params.station_id.as_deref())
+    metrics::list_latest_status(&state.pool, params.station_id.as_deref())
         .await
         .map(Json)
         .map_err(db_err("current status"))
