@@ -73,6 +73,7 @@ This directory contains custom Yocto recipes and source modules for the system b
  - [x] Hook Up Grafanna to visualize with Database
  - [ ] Hook Up Grafanna to visualize with Apis
  - [ ] Create Custom front-end app or webapp for visualization
+ - [ ] Device Stats and Database Stats Visualization
 
 ### 6. Local build testing
   - Setup DB
