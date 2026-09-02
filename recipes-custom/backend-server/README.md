@@ -103,6 +103,9 @@ your actual sensor calibration and site requirements before relying on them.
 - [x] Reduce latency in ingest path
 - [ ] Add station ID, start time and end time params to `/status`
 - [ ] Work on scaling DBs (Distributed dbs and Replicas for read)
+\t- [x]  Create Distribued DB
+\t- [x]  Create Sync script
+\t- [ ]  Sync Dbs via HTTP
 - [ ] Add Scaling of Webservers 
 - [ ] Add Scaling of LoadBalancer
 - [ ] Add Authentication 
